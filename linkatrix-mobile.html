@@ -1,0 +1,2114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>LINKATRIX — Better Information. Better Decisions. Better Income.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          forest: { 900:'#123024', 800:'#16402F', 700:'#1F5C42', 600:'#256B4D', 500:'#2F9E6E', 100:'#E6F0EA', 50:'#F3F8F5' },
+          ink: { 900:'#14201A', 700:'#3C4A42', 500:'#6B7A71', 300:'#AAB6AE' },
+          amber: { 600:'#B4791F', 500:'#D08F2A', 100:'#FBF0DE' },
+          red: { 600:'#C4432F', 100:'#FBE9E6' },
+        },
+        fontFamily: { body: ['Manrope','Noto Sans Devanagari','sans-serif'] },
+      }
+    }
+  }
+</script>
+<style>
+  * { -webkit-tap-highlight-color: transparent; }
+  html,body { font-family:'Manrope','Noto Sans Devanagari',sans-serif; background:#EDF1EE; color:#14201A; overscroll-behavior-y: none; }
+  #root { min-height:100vh; }
+  ::-webkit-scrollbar { display:none; }
+  .no-scrollbar::-webkit-scrollbar{ display:none; }
+  .phone-shell { max-width:430px; margin:0 auto; min-height:100vh; background:#FFFFFF; position:relative; box-shadow:0 0 0 1px rgba(0,0,0,0.04); }
+  @media (min-width:431px){
+    body { background:#DCE3DE; }
+    .phone-shell { min-height:844px; max-height:900px; margin:24px auto; border-radius:36px; overflow:hidden; box-shadow:0 30px 60px -20px rgba(18,48,36,0.35), 0 0 0 8px #0F241B; }
+  }
+  .scroll-area { height:100%; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  @keyframes fadeUp { from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:translateY(0);} }
+  .fade-up { animation: fadeUp .45s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes popIn { from{opacity:0; transform:scale(.94);} to{opacity:1; transform:scale(1);} }
+  .pop-in { animation: popIn .3s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes sheetUp { from{transform:translateY(100%);} to{transform:translateY(0);} }
+  .sheet-up { animation: sheetUp .32s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes splashPulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.06); } }
+  .splash-pulse { animation: splashPulse 1.8s ease-in-out infinite; }
+  @keyframes shimmer { 100% { transform: translateX(100%); } }
+  .skeleton { position:relative; overflow:hidden; background:#EEF2EF; }
+  .skeleton::after { content:''; position:absolute; inset:0; transform:translateX(-100%);
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.7), transparent); animation: shimmer 1.4s infinite; }
+  input, select, textarea, button { font-family:inherit; outline:none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ==========================================================================
+// LINKATRIX Mobile — Mock data + rule-based engines
+// Structured to mirror /services/marketApi.js + /services/recommendationEngine.js
+// described in the spec, so real Agmarknet/eNAM + weather APIs can be
+// dropped in later via environment variables without changing the UI.
+// ==========================================================================
+(function(){
+  const MARKET_API_CONFIGURED = false; // legacy flag — Home/Weather still use demo data
+  const WEATHER_API_CONFIGURED = false; // set true once WEATHER_API_URL is live
+
+  // ------------------------------------------------------------------------
+  // REAL market data — data.gov.in "Current Daily Price of Various
+  // Commodities from Various Markets (Mandi)" (Agmarknet-sourced, Ministry
+  // of Agriculture & Farmers Welfare). This is a genuine government API,
+  // called directly from the browser — no backend proxy in this prototype.
+  //   Resource: 9ef84268-d588-465a-a308-a864a43d0070
+  //   Docs: https://www.data.gov.in/catalog/current-daily-price-various-commodities-various-markets-mandi
+  // Because this file has no server, the request goes straight from your
+  // browser to api.data.gov.in. If that response doesn't carry a CORS
+  // header allowing your origin, the browser will block it — the app
+  // detects this (or any network failure) and falls back to demo data
+  // rather than crashing or silently pretending to be live.
+  // ------------------------------------------------------------------------
+  const MARKET_API_BASE = 'https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070';
+  // Public sample key published by data.gov.in for testing — shared by
+  // everyone, so it is heavily rate-limited. Register your own free key at
+  // https://www.data.gov.in (Sign Up → My Account → API key) and set it
+  // from the app's Profile → Data Source Settings screen for reliable use.
+  const DEFAULT_SAMPLE_KEY = '579b464db66ec23bdd000001cdd3946e44ce4aad7209ff7b23ac571b';
+
+  function getMarketApiKey(){
+    try { return localStorage.getItem('linkatrix_market_api_key') || DEFAULT_SAMPLE_KEY; }
+    catch(e){ return DEFAULT_SAMPLE_KEY; }
+  }
+  function setMarketApiKey(key){
+    try { localStorage.setItem('linkatrix_market_api_key', key || ''); } catch(e){}
+  }
+  function usingDefaultKey(){ return getMarketApiKey() === DEFAULT_SAMPLE_KEY; }
+
+  const INDIAN_STATES = ['Haryana','Punjab','Uttar Pradesh','NCT of Delhi','Rajasthan','Madhya Pradesh','Maharashtra','Gujarat','Karnataka','Bihar'];
+
+  // Maps our internal crop ids to the exact commodity spelling Agmarknet
+  // publishes, since the government field names are not standardised and
+  // must match exactly for the filter to work.
+  const AGMARKNET_COMMODITY = { tomato:'Tomato', onion:'Onion', potato:'Potato', wheat:'Wheat', rice:'Rice', mustard:'Mustard' };
+
+  async function fetchLiveMandiPrices({ state='Haryana', cropId='tomato', limit=100 }){
+    const commodity = AGMARKNET_COMMODITY[cropId];
+    if(!commodity) throw new Error('Unsupported commodity for live lookup');
+    const url = `${MARKET_API_BASE}?api-key=${encodeURIComponent(getMarketApiKey())}&format=json&limit=${limit}&filters[state]=${encodeURIComponent(state)}&filters[commodity]=${encodeURIComponent(commodity)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 12000);
+    let res;
+    try {
+      res = await fetch(url, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if(!res.ok) throw new Error('Agmarknet API returned status '+res.status);
+    const json = await res.json();
+    const records = Array.isArray(json.records) ? json.records : [];
+    if(records.length === 0) throw new Error('No live records for this state/commodity combination');
+
+    // Normalize to the format described in the spec: crop, variety, mandi,
+    // district, state, arrivalDate, minPrice, maxPrice, modalPrice
+    const normalized = records.map(r => ({
+      crop: r.commodity, variety: r.variety, mandi: r.market, district: r.district, state: r.state,
+      arrivalDate: r.arrival_date, // government format is DD/MM/YYYY
+      minPrice: Number(r.min_price)||0, maxPrice: Number(r.max_price)||0, modalPrice: Number(r.modal_price)||0,
+    })).filter(r => r.modalPrice > 0);
+
+    // Keep only the latest record per market (the dataset can list a market
+    // more than once across nearby dates).
+    const byMarket = {};
+    normalized.forEach(r=>{
+      const key = r.mandi;
+      if(!byMarket[key] || parseDDMMYYYY(r.arrivalDate) > parseDDMMYYYY(byMarket[key].arrivalDate)){
+        byMarket[key] = r;
+      }
+    });
+    const mandiList = Object.values(byMarket).sort((a,b)=>b.modalPrice-a.modalPrice);
+
+    // Build a short real trend if the pull happened to span multiple dates.
+    const byDate = {};
+    normalized.forEach(r=>{
+      const d = r.arrivalDate;
+      if(!byDate[d]) byDate[d] = [];
+      byDate[d].push(r.modalPrice);
+    });
+    const dateKeys = Object.keys(byDate).sort((a,b)=>parseDDMMYYYY(a)-parseDDMMYYYY(b));
+    const trendSeries = dateKeys.map(d=>{
+      const vals = byDate[d];
+      const avg = Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
+      const parts = d.split('/');
+      const iso = parts.length===3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : d;
+      const label = parts.length===3 ? `${parts[0]} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(parts[1])-1]}` : d;
+      return { date: iso, label, price: avg };
+    });
+
+    return { mandiList, trendSeries, fetchedAt: new Date().toISOString(), raw: normalized };
+  }
+  function parseDDMMYYYY(s){
+    if(!s) return 0;
+    const [d,m,y] = s.split('/').map(Number);
+    return new Date(y,(m||1)-1,d||1).getTime();
+  }
+
+  function seedSeries(base, days, drift, noise, seed){
+    const out = []; let v = base;
+    const today = new Date(2026,8,12);
+    for(let i=days-1;i>=0;i--){
+      v = v + drift + Math.sin((i+seed)/3)*noise + (((i*37+seed)%7)-3)*1.6;
+      const d = new Date(today); d.setDate(d.getDate()-i);
+      out.push({ date: d.toISOString().slice(0,10), label: d.toLocaleDateString('en-IN',{day:'2-digit',month:'short'}), price: Math.max(50,Math.round(v)) });
+    }
+    return out;
+  }
+
+  const CROPS = [
+    { id:'tomato', name:'Tomato', nameHi:'टमाटर', unit:'Quintal', history: seedSeries(2350,90,4.6,26,1) },
+    { id:'onion', name:'Onion', nameHi:'प्याज', unit:'Quintal', history: seedSeries(2200,90,-3.1,30,2) },
+    { id:'potato', name:'Potato', nameHi:'आलू', unit:'Quintal', history: seedSeries(1450,90,1.4,14,3) },
+    { id:'wheat', name:'Wheat', nameHi:'गेहूं', unit:'Quintal', history: seedSeries(2410,90,2.9,12,4) },
+    { id:'rice', name:'Rice', nameHi:'चावल', unit:'Quintal', history: seedSeries(3120,90,1.1,20,5) },
+    { id:'mustard', name:'Mustard', nameHi:'सरसों', unit:'Quintal', history: seedSeries(5480,90,-2.4,38,6) },
+  ];
+
+  const MANDIS = [
+    { id:'m1', name:'Azadpur Mandi', distanceKm:18, trend:4.8 },
+    { id:'m2', name:'Gurgaon Mandi', distanceKm:32, trend:2.1 },
+    { id:'m3', name:'Panipat Mandi', distanceKm:55, trend:-1.2 },
+    { id:'m4', name:'Sonipat Mandi', distanceKm:41, trend:1.0 },
+  ];
+
+  function mandiPriceFor(cropId, mandi){
+    const crop = CROPS.find(c=>c.id===cropId) || CROPS[0];
+    const base = crop.history[crop.history.length-1].price;
+    const adj = { m1:1.03, m2:1.0, m3:0.975, m4:1.008 }[mandi.id] || 1;
+    return Math.round(base*adj);
+  }
+
+  const BUYERS = [
+    { id:'b1', name:'Sharma Agro Traders', distanceKm:2.8, trustScore:92, verified:true, interestedIn:'Tomato', qty:100,
+      transactions:148, rating:4.7, disputeRate:1.3, breakdown:{ identity:20, transactions:28, payment:24, ratings:20 } },
+    { id:'b2', name:'FreshFarm Foods', distanceKm:5.8, trustScore:87, verified:true, interestedIn:'Vegetables', qty:80,
+      transactions:96, rating:4.4, disputeRate:2.4, breakdown:{ identity:20, transactions:24, payment:22, ratings:21 } },
+    { id:'b3', name:'GreenBasket Procurement', distanceKm:8.1, trustScore:95, verified:true, interestedIn:'Tomato, Onion', qty:150,
+      transactions:210, rating:4.8, disputeRate:0.8, breakdown:{ identity:20, transactions:29, payment:25, ratings:21 } },
+  ];
+
+  const KNOWLEDGE_CATEGORIES = [
+    { id:'fertilizers', icon:'sprout', title:'Fertilizers', titleHi:'उर्वरक' },
+    { id:'chemicals', icon:'flask', title:'Chemicals', titleHi:'रसायन' },
+    { id:'pesticides', icon:'bug', title:'Pesticides', titleHi:'कीटनाशक' },
+    { id:'irrigation', icon:'droplet', title:'Irrigation', titleHi:'सिंचाई' },
+    { id:'cropmgmt', icon:'leaf', title:'Crop Management', titleHi:'फसल प्रबंधन' },
+    { id:'weatherknow', icon:'cloud', title:'Weather', titleHi:'मौसम' },
+    { id:'marketknow', icon:'trendUp', title:'Market Knowledge', titleHi:'बाज़ार जानकारी' },
+  ];
+
+  const FERTILIZERS = [
+    { name:'Nitrogen Fertilizers', what:'Promote leafy green growth and are key during the vegetative stage.', when:'Generally used early in the crop cycle, split across 2–3 doses.', caution:'Over-application can delay flowering and increase pest susceptibility.' },
+    { name:'Phosphorus Fertilizers', what:'Support root development and early plant establishment.', when:'Typically applied as a basal dose at sowing/transplanting.', caution:'Excess phosphorus can lock out micronutrients like zinc.' },
+    { name:'Potassium Fertilizers', what:'Improve fruit quality, disease resistance and water regulation.', when:'Often applied during flowering and fruiting stages.', caution:'Should be balanced with soil-test recommendations for your field.' },
+    { name:'Organic Fertilizers', what:'Improve long-term soil health, structure and microbial activity.', when:'Best applied well before sowing to allow decomposition.', caution:'Ensure compost/manure is fully decomposed to avoid pathogens.' },
+  ];
+
+  const PESTICIDES = [
+    { category:'Insecticides', purpose:'Target sap-sucking and leaf-eating insects.', crops:'Vegetables, cotton, cereals', safety:'Use recommended protective equipment; observe pre-harvest interval.' },
+    { category:'Fungicides', purpose:'Control fungal infections such as blight and mildew.', crops:'Tomato, potato, grapes', safety:'Avoid spraying before rain; rotate active ingredients to prevent resistance.' },
+    { category:'Herbicides', purpose:'Manage weed competition in field crops.', crops:'Wheat, rice, sugarcane', safety:'Apply at the correct crop growth stage to avoid crop injury.' },
+  ];
+
+  const AFTER_HARVEST = {
+    wheat: [
+      { crop:'Moong', water:'Low', season:'Zaid (Summer)', demand:'Moderate–High', cycle:'~60–65 days' },
+      { crop:'Vegetables (seasonal)', water:'Medium', season:'Zaid/Kharif', demand:'High', cycle:'~60–90 days' },
+      { crop:'Mustard', water:'Low', season:'Rabi (next cycle)', demand:'Moderate', cycle:'~110–140 days' },
+    ],
+  };
+
+  const WHAT_TO_GROW_POOL = [
+    { crop:'Tomato', reason:'Good market demand and suits moderate water availability.' },
+    { crop:'Onion', reason:'Stores well and has steady mandi demand through the season.' },
+    { crop:'Mustard', reason:'Low water requirement, suitable for the upcoming Rabi season.' },
+  ];
+
+  const DEMO_ACCOUNTS = {
+    farmer: { name:'Ramesh Kumar', role:'FARMER', phone:'9876543210', location:'Haryana', mandi:'Azadpur Mandi', crop:'tomato', quantity:20 },
+    buyer:  { name:'Sharma Agro Traders', role:'BUYER', phone:'9876500004', location:'Delhi NCR', businessName:'Sharma Agro Traders', category:'Wholesaler' },
+  };
+
+  // Crop listings posted by farmers — this is what a Buyer browses.
+  const FARMER_LISTINGS = [
+    { id:'L2001', cropId:'tomato', farmer:'Ramesh Kumar', farmerTrust:88, quantity:20, unit:'Quintal', quality:'Good', expectedPrice:2450, location:'Sonipat, Haryana', distanceKm:6.2, createdAt:'2026-09-10' },
+    { id:'L2002', cropId:'onion', farmer:'Sita Devi', farmerTrust:91, quantity:35, unit:'Quintal', quality:'Excellent', expectedPrice:2180, location:'Rohtak, Haryana', distanceKm:14.5, createdAt:'2026-09-11' },
+    { id:'L2003', cropId:'wheat', farmer:'Gurpreet Singh', farmerTrust:95, quantity:60, unit:'Quintal', quality:'Excellent', expectedPrice:2500, location:'Karnal, Haryana', distanceKm:22.0, createdAt:'2026-09-09' },
+    { id:'L2004', cropId:'potato', farmer:'Manoj Yadav', farmerTrust:76, quantity:15, unit:'Quintal', quality:'Average', expectedPrice:1420, location:'Panipat, Haryana', distanceKm:9.8, createdAt:'2026-09-11' },
+    { id:'L2005', cropId:'mustard', farmer:'Ramesh Kumar', farmerTrust:88, quantity:10, unit:'Quintal', quality:'Good', expectedPrice:5420, location:'Sonipat, Haryana', distanceKm:6.2, createdAt:'2026-09-08' },
+  ];
+
+  function recommendationEngine(cropId){
+    // RecommendationEngine -> RuleBasedEngine (see /services/recommendationEngine.js)
+    // ML forecasting can be integrated after sufficient historical data is available.
+    const crop = CROPS.find(c=>c.id===cropId) || CROPS[0];
+    const h = crop.history;
+    const last7 = h.slice(-7);
+    const trendPct = Number((((last7[last7.length-1].price - last7[0].price) / last7[0].price) * 100).toFixed(1));
+    const movingAvg = Math.round(h.slice(-7).reduce((a,d)=>a+d.price,0)/7);
+    const nearbyPositive = MANDIS.filter(m=>m.trend>0).length;
+    const nearbyTrendPositive = nearbyPositive >= MANDIS.length/2;
+    let recommendation = 'COMPARE_MANDIS';
+    if (trendPct > 2.5 && nearbyTrendPositive) recommendation = 'WAIT';
+    else if (trendPct < -2.5) recommendation = 'SELL_NOW';
+    const current = h[h.length-1].price;
+    const expectedChangePct = recommendation==='WAIT' ? Math.max(1.5, Math.min(5, trendPct*0.85)) : recommendation==='SELL_NOW' ? -Math.abs(trendPct*0.3) : 0.8;
+    const expected = Math.round(current*(1+expectedChangePct/100));
+    const confidence = Math.min(92, Math.round(55 + Math.abs(trendPct)*4));
+    return {
+      cropId, cropName: crop.name, current, expected, diffPerUnit: expected-current,
+      trendPct, movingAvg, nearbyTrendPositive, nearbyPositive, totalMandis: MANDIS.length,
+      recommendation, confidence,
+      factors: [
+        { label:'Recent 7-day trend', value: trendPct>=0?'↑ Positive':'↓ Negative', positive: trendPct>=0 },
+        { label:'Nearby mandi trend', value: nearbyTrendPositive?'↑ Positive':'↓ Mixed', positive: nearbyTrendPositive },
+        { label:'Current price', value: `₹${current}`, positive:null },
+        { label:'Historical pattern', value: trendPct>=0?'↑ Positive':'↓ Negative', positive: trendPct>=0 },
+      ],
+    };
+  }
+
+  function weatherEngine(){
+    // Demo weather — swap for a real fetch to WEATHER_API_URL when configured.
+    return { tempC:28, rainProb:60, windKmh:12, humidity:72, condition:'Partly cloudy with chance of rain', configured: WEATHER_API_CONFIGURED };
+  }
+
+  function farmTipFromWeather(w){
+    if (w.rainProb >= 50) {
+      return { icon:'cloudRain', title:"Avoid applying fertilizer today", reason:'Rain may wash away nutrients before they are effectively absorbed.', badge:'WEATHER-BASED TIP', priority:'High', expected:'Rain likely this afternoon', action:'Delay fertilizer application by 1–2 days' };
+    }
+    return { icon:'sun', title:'Good conditions for field work', reason:'No significant rain expected — a suitable window for fertilizer or spraying, subject to label instructions.', badge:'WEATHER-BASED TIP', priority:'Normal', expected:'Clear conditions expected', action:'Proceed as planned' };
+  }
+
+  window.LINKATRIX = {
+    MARKET_API_CONFIGURED, WEATHER_API_CONFIGURED,
+    CROPS, MANDIS, BUYERS, KNOWLEDGE_CATEGORIES, FERTILIZERS, PESTICIDES, AFTER_HARVEST, WHAT_TO_GROW_POOL, DEMO_ACCOUNTS,
+    mandiPriceFor, recommendationEngine, weatherEngine, farmTipFromWeather,
+    getListings: (function(){ let L=[]; return { get:()=>L, add:(l)=>{L=[l,...L]; return l;} }; })(),
+    FARMER_LISTINGS,
+    getOffers: (function(){ let O=[]; return { get:()=>O, add:(o)=>{O=[o,...O]; return o;} }; })(),
+    INDIAN_STATES, AGMARKNET_COMMODITY,
+    fetchLiveMandiPrices, getMarketApiKey, setMarketApiKey, usingDefaultKey, DEFAULT_SAMPLE_KEY,
+  };
+})();
+</script>
+<script type="text/babel" data-presets="react">
+const ICONS = {
+  leaf: "M20 5c-6 0-13 2-15 9-1 4 0 7 2 9 2 2 5 3 9 2 7-2 9-9 9-15 0-2-1-4-2-5-1-1-2-1-3 0z M6 19c3-4 7-8 13-12",
+  home: "M4 11l8-7 8 7 M6 10v10h5v-6h2v6h5V10",
+  trendUp: "M3 17l6-6 4 4 8-8 M17 7h4v4",
+  trendDown: "M3 7l6 6 4-4 8 8 M17 17h4v-4",
+  plus: "M12 5v14 M5 12h14",
+  users: "M9 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M2.5 20c1-3.5 3.6-5.5 6.5-5.5s5.5 2 6.5 5.5 M16.5 6.5A3 3 0 1 1 17 12.4 M17.5 14.3c2 .6 3.5 2.5 4 5.7",
+  book: "M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z M20 18H6.5A2.5 2.5 0 0 0 4 20.5",
+  bell: "M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z M10 19a2 2 0 0 0 4 0",
+  user: "M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z M4 21c1.5-4.5 5-7 8-7s6.5 2.5 8 7",
+  mapPin: "M12 21s7-6.2 7-11.5A7 7 0 1 0 5 9.5C5 14.8 12 21 12 21z M12 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+  cloudRain: "M7 16a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 9.5 4 4 0 0 1 17 17H7z M8 19l-1 2 M12 19l-1 2 M16 19l-1 2",
+  cloud: "M7 16a4 4 0 0 1 .5-8A5.5 5.5 0 0 1 18 9.5 4 4 0 0 1 17 17H7z",
+  sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 2v2 M12 20v2 M4.2 4.2l1.4 1.4 M18.4 18.4l1.4 1.4 M2 12h2 M20 12h2 M4.2 19.8l1.4-1.4 M18.4 5.6l1.4-1.4",
+  search: "M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z M21 21l-4.3-4.3",
+  filter: "M4 5h16 M7 12h10 M10 19h4",
+  camera: "M4 8h3l2-3h6l2 3h3v11H4z M12 18a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  check: "M20 6L9 17l-5-5",
+  chevronRight: "M9 6l6 6-6 6",
+  chevronDown: "M6 9l6 6 6-6",
+  chevronLeft: "M15 6l-6 6 6 6",
+  info: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 11v5 M12 8h.01",
+  x: "M6 6l12 12 M18 6L6 18",
+  alertTriangle: "M12 3l10 18H2z M12 10v4 M12 17h.01",
+  wifiOff: "M2 8.8a17 17 0 0 1 4-2.6 M22 8.8a17 17 0 0 0-6-3.4 M5 13a11 11 0 0 1 4.5-2.4 M19 13a11 11 0 0 0-4-2.2 M8.5 16.5a6 6 0 0 1 3-1 M12 20h.01 M2 2l20 20",
+  star: "M12 3l2.6 5.6 6.2.6-4.6 4.2 1.3 6.1L12 16.8 6.5 19.5l1.3-6.1-4.6-4.2 6.2-.6z",
+  shield: "M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z M9 12l2 2 4-4",
+  sprout: "M12 21v-8 M12 13c-4 0-6-2-6-6 4 0 6 2 6 6z M12 11c3 0 5-2 5-5-3 0-5 1.5-5 5z",
+  flask: "M9 3h6 M10 3v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.5L14 9V3",
+  bug: "M9 9V7a3 3 0 1 1 6 0v2 M8 9h8v6a4 4 0 0 1-8 0z M3 10l3 1 M21 10l-3 1 M3 18l3-1.5 M21 18l-3-1.5 M8 12H4 M20 12h-4 M10 6l-2-2 M14 6l2-2",
+  droplet: "M12 3s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11z",
+  arrowRight: "M4 12h16 M14 6l6 6-6 6",
+  send: "M4 12l16-8-6 16-3-7z",
+  gps: "M12 2v3 M12 19v3 M2 12h3 M19 12h3 M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+  wind: "M4 8h9a2.5 2.5 0 1 0-2-4 M4 16h13a2.5 2.5 0 1 1-2 4 M4 12h16a2 2 0 1 0-1.6-3.2",
+  thermometer: "M10 14V4a2 2 0 1 1 4 0v10a4 4 0 1 1-4 0z",
+  globe: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18",
+  logOut: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9",
+  settings: "M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V10c.1.7.6 1.3 1.5 1.5h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+  refresh: "M3 12a9 9 0 0 1 15.4-6.4L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-15.4 6.4L3 16 M3 21v-5h5",
+  scale: "M12 3v18 M6 21h12 M4 8l4-4 4 4 M4 8l4 8h-8z M20 8l-4-4-4 4 M20 8l-4 8h8z",
+  handshake: "M2 12l4-4 4 2 4-4 4 4 4-2 M6 10l4 6 M18 10l-4 6",
+  package: "M4 8l8-5 8 5v9l-8 5-8-5z M4 8l8 5 8-5 M12 13v9",
+  edit: "M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
+};
+function Icon({ name, size=20, className="", strokeWidth=1.9 }){
+  const d = ICONS[name] || ICONS.info;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d={d} />
+    </svg>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// i18n — centralized translation dictionary (/locales/en.json, /locales/hi.json)
+// ==========================================================================
+const I18N = {
+  en: {
+    home:'Home', price:'Price', add:'Add', buyers:'Buyers', knowledge:'Knowledge',
+    goodMorning:'Good Morning', whatToDoToday:'WHAT TO DO TODAY?', demoRecommendation:'Demo recommendation',
+    marketSnapshot:'Market Snapshot', yourCrop:'Your Crop', nearbyBuyers:'Nearby Buyers', knowledgeToday:'Knowledge for Today',
+    viewPriceTrend:'View Price Trend', viewRecommendation:'View Recommendation', viewBuyer:'View Buyer', readMore:'Read More',
+    priceTrend:'Price Trend', liveData:'LIVE MARKET DATA', demoData:'DEMO DATA', searchCrop:'Search crop',
+    addCrop:'Add Your Crop', getRecommendation:'Get Recommendation', yourSellingRecommendation:'Your Selling Recommendation',
+    nearbyMandis:'Nearby Mandis', bestPrice:'BEST PRICE', recommendedBuyers:'Recommended Buyers', knowledgeHub:'Knowledge Hub',
+    weather:'Weather', profile:'Profile', logout:'Logout', tryDemo:'Try Demo', continueBtn:'Continue',
+    browse:'Browse', offers:'Offers', browseListings:'Browse Listings', myOffers:'My Offers',
+    sourcingToday:'SOURCING SNAPSHOT', newListings:'New Listings', trustedFarmers:'Trusted Farmers',
+    makeOffer:'Make Offer', sendOffer:'Send Offer', contactFarmer:'Contact Farmer', viewListing:'View Listing',
+    goodMorningBuyer:'Good Morning, Buyer',
+  },
+  hi: {
+    home:'होम', price:'भाव', add:'जोड़ें', buyers:'खरीदार', knowledge:'जानकारी',
+    goodMorning:'सुप्रभात', whatToDoToday:'आज क्या करें?', demoRecommendation:'डेमो सुझाव',
+    marketSnapshot:'बाज़ार का हाल', yourCrop:'आपकी फसल', nearbyBuyers:'नज़दीकी खरीदार', knowledgeToday:'आज की जानकारी',
+    viewPriceTrend:'भाव देखें', viewRecommendation:'सुझाव देखें', viewBuyer:'खरीदार देखें', readMore:'और पढ़ें',
+    priceTrend:'भाव का रुझान', liveData:'लाइव बाज़ार डेटा', demoData:'डेमो डेटा', searchCrop:'फसल खोजें',
+    addCrop:'अपनी फसल जोड़ें', getRecommendation:'सुझाव पाएं', yourSellingRecommendation:'आपकी बिक्री सिफ़ारिश',
+    nearbyMandis:'नज़दीकी मंडियां', bestPrice:'सबसे अच्छा भाव', recommendedBuyers:'सुझाए गए खरीदार', knowledgeHub:'जानकारी केंद्र',
+    weather:'मौसम', profile:'प्रोफ़ाइल', logout:'लॉग आउट', tryDemo:'डेमो आज़माएं', continueBtn:'जारी रखें',
+    browse:'देखें', offers:'ऑफर', browseListings:'फसल सूची देखें', myOffers:'मेरे ऑफर',
+    sourcingToday:'आज की खरीद जानकारी', newListings:'नई लिस्टिंग', trustedFarmers:'भरोसेमंद किसान',
+    makeOffer:'ऑफर भेजें', sendOffer:'ऑफर भेजें', contactFarmer:'किसान से संपर्क करें', viewListing:'लिस्टिंग देखें',
+    goodMorningBuyer:'सुप्रभात, खरीदार',
+  },
+};
+const LangCtx = React.createContext({ lang:'en', setLang:()=>{} });
+function useT(){
+  const { lang } = React.useContext(LangCtx);
+  return (key) => (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+}
+
+const AppCtx = React.createContext(null);
+function useApp(){ return React.useContext(AppCtx); }
+function useToast(){
+  const { toasts, setToasts } = useApp();
+  return (msg, kind='success') => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts(t=>[...t,{id,msg,kind}]);
+    setTimeout(()=> setToasts(t=>t.filter(x=>x.id!==id)), 2600);
+  };
+}
+function ToastHost(){
+  const { toasts } = useApp();
+  return (
+    <div className="absolute left-0 right-0 bottom-24 z-[200] flex flex-col items-center gap-2 px-4 pointer-events-none">
+      {toasts.map(t=>(
+        <div key={t.id} className={`pop-in px-4 py-2.5 rounded-full shadow-lg text-sm font-semibold flex items-center gap-2 ${t.kind==='error'?'bg-red-600 text-white':'bg-forest-900 text-white'}`}>
+          <Icon name={t.kind==='error'?'alertTriangle':'check'} size={15}/>{t.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Badge({ children, tone='neutral', className='' }){
+  const tones = {
+    neutral:'bg-ink-900/5 text-ink-700', good:'bg-forest-100 text-forest-700',
+    warn:'bg-amber-100 text-amber-600', bad:'bg-red-100 text-red-600',
+    live:'bg-forest-700 text-white', demo:'bg-amber-100 text-amber-600',
+  };
+  return <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold tracking-wide ${tones[tone]} ${className}`}>{children}</span>;
+}
+
+function Button({ children, variant='primary', size='md', className='', ...props }){
+  const sizes = { sm:'px-3.5 py-2 text-[13px]', md:'px-4 py-3 text-[15px]', lg:'px-5 py-3.5 text-base' };
+  const variants = {
+    primary:'bg-forest-700 text-white active:bg-forest-800 shadow-sm shadow-forest-900/15',
+    outline:'border-[1.5px] border-forest-700/25 text-forest-800 active:bg-forest-50',
+    ghost:'text-forest-700 active:bg-forest-50',
+    soft:'bg-forest-100 text-forest-700 active:bg-forest-100/70',
+    white:'bg-white text-ink-900 shadow-sm active:bg-ink-900/5',
+  };
+  return <button className={`rounded-2xl font-bold transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-40 ${sizes[size]} ${variants[variant]} ${className}`} {...props}>{children}</button>;
+}
+
+function Card({ children, className='', padded=true, onClick }){
+  return <div onClick={onClick} className={`bg-white rounded-2xl border border-ink-900/[0.06] ${padded?'p-4':''} ${onClick?'active:scale-[0.98] transition-transform cursor-pointer':''} ${className}`}>{children}</div>;
+}
+
+function StickyHeader({ children, className='' }){
+  return <div className={`sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-ink-900/[0.05] ${className}`}>{children}</div>;
+}
+
+function TopBar({ title, onBack, right }){
+  return (
+    <StickyHeader className="px-4 h-14 flex items-center gap-3">
+      {onBack && <button onClick={onBack} className="w-8 h-8 -ml-1 flex items-center justify-center text-ink-900"><Icon name="chevronLeft" size={22}/></button>}
+      <div className="font-extrabold text-[17px] text-ink-900 flex-1 truncate">{title}</div>
+      {right}
+    </StickyHeader>
+  );
+}
+
+function BottomSheet({ open, onClose, title, children }){
+  if(!open) return null;
+  return (
+    <div className="absolute inset-0 z-[150]">
+      <div className="absolute inset-0 bg-ink-900/40" onClick={onClose} />
+      <div className="sheet-up absolute left-0 right-0 bottom-0 bg-white rounded-t-3xl max-h-[80%] overflow-y-auto pb-6">
+        <div className="w-10 h-1.5 bg-ink-900/15 rounded-full mx-auto mt-3" />
+        <div className="flex items-center justify-between px-5 pt-3 pb-2">
+          <div className="font-extrabold text-lg text-ink-900">{title}</div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full bg-ink-900/5 flex items-center justify-center text-ink-700"><Icon name="x" size={16}/></button>
+        </div>
+        <div className="px-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function BottomNav({ active, setView, role='FARMER' }){
+  const t = useT();
+  const items = role==='BUYER' ? [
+    ['home','home',t('home')], ['price','trendUp',t('price')], ['browse','search',t('browse')],
+    ['offers','handshake',t('offers')], ['knowledge','book',t('knowledge')],
+  ] : [
+    ['home','home',t('home')], ['price','trendUp',t('price')], ['add','plus',t('add')],
+    ['buyers','users',t('buyers')], ['knowledge','book',t('knowledge')],
+  ];
+  const centerKey = role==='BUYER' ? 'browse' : 'add';
+  const centerIcon = role==='BUYER' ? 'search' : 'plus';
+  return (
+    <div className="absolute bottom-0 left-0 right-0 z-40 bg-white border-t border-ink-900/[0.06] pb-[env(safe-area-inset-bottom)]">
+      <div className="flex items-stretch h-[64px]">
+        {items.map(([key,icon,label])=>{
+          const isCenter = key===centerKey;
+          const isActive = active===key;
+          if(isCenter){
+            return (
+              <button key={key} onClick={()=>setView(key)} className="flex-1 flex items-center justify-center relative">
+                <span className="w-14 h-14 rounded-full bg-forest-700 text-white flex items-center justify-center shadow-lg shadow-forest-700/30 -mt-6 border-4 border-white">
+                  <Icon name={centerIcon} size={22} strokeWidth={2.3}/>
+                </span>
+              </button>
+            );
+          }
+          return (
+            <button key={key} onClick={()=>setView(key)} className="flex-1 flex flex-col items-center justify-center gap-1">
+              <Icon name={icon} size={21} className={isActive?'text-forest-700':'text-ink-300'} strokeWidth={isActive?2.2:1.8}/>
+              <span className={`text-[10px] font-bold ${isActive?'text-forest-700':'text-ink-300'}`}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Skeleton({ className='' }){
+  return <div className={`skeleton rounded-2xl ${className}`} />;
+}
+
+function TrustRing({ score, size=60 }){  const r=(size-8)/2, c=2*Math.PI*r;
+  const color = score>=80?'#2F9E6E':score>=60?'#D08F2A':'#C4432F';
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={r} stroke="#EEF2EF" strokeWidth="6" fill="none"/>
+      <circle cx={size/2} cy={size/2} r={r} stroke={color} strokeWidth="6" fill="none" strokeLinecap="round"
+        strokeDasharray={c} strokeDashoffset={c-(score/100)*c} transform={`rotate(-90 ${size/2} ${size/2})`} />
+      <text x="50%" y="50%" textAnchor="middle" dy="5" fontSize={size*0.24} fontWeight="800" fill="#14201A">{score}</text>
+    </svg>
+  );
+}
+
+function OfflineBanner({ online }){
+  if(online) return null;
+  return (
+    <div className="bg-amber-100 text-amber-700 text-xs font-semibold px-4 py-2 flex items-center gap-2">
+      <Icon name="wifiOff" size={14}/> You are offline — showing last available market data.
+    </div>
+  );
+}
+
+function DataSourcesFooter(){
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="px-4 py-5">
+      <button onClick={()=>setOpen(o=>!o)} className="flex items-center gap-1.5 text-xs font-bold text-ink-500">
+        <Icon name="info" size={13}/> Data Sources <Icon name={open?'chevronDown':'chevronRight'} size={13}/>
+      </button>
+      {open && (
+        <div className="mt-2 text-[11px] text-ink-500 space-y-1 fade-up leading-relaxed">
+          <div><b className="text-ink-700">Market prices:</b> Government agricultural market data / Agmarknet-compatible source (demo until connected)</div>
+          <div><b className="text-ink-700">Weather:</b> Configured weather API (demo until connected)</div>
+          <div><b className="text-ink-700">Recommendations:</b> LINKATRIX rule-based decision engine</div>
+          <div><b className="text-ink-700">Buyer trust:</b> LINKATRIX platform transaction/rating data</div>
+        </div>
+      )}
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+function StockChart({ data, width=380, height=190, color="#2F9E6E" }){
+  const pad = { l:38, r:10, t:14, b:22 };
+  const vals = data.map(d=>d.price);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = (max-min)||1;
+  const innerW = width-pad.l-pad.r, innerH = height-pad.t-pad.b;
+  const pts = data.map((d,i)=>{
+    const x = pad.l + (data.length===1?0:(i/(data.length-1))*innerW);
+    const y = pad.t + innerH - ((d.price-min)/range)*innerH;
+    return [x,y];
+  });
+  const path = pts.map((p,i)=>(i===0?`M ${p[0]} ${p[1]}`:`L ${p[0]} ${p[1]}`)).join(' ');
+  const areaPath = `${path} L ${pts[pts.length-1][0]} ${pad.t+innerH} L ${pts[0][0]} ${pad.t+innerH} Z`;
+  const [hover, setHover] = React.useState(data.length-1);
+  const h = hover!=null ? hover : data.length-1;
+  const rising = data[data.length-1].price >= data[0].price;
+  const gid = 'g'+Math.random().toString(36).slice(2,8);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto touch-none"
+      onMouseLeave={()=>setHover(data.length-1)}
+      onTouchMove={e=>{
+        const rect = e.target.closest('svg').getBoundingClientRect();
+        const x = e.touches[0].clientX - rect.left;
+        const ratio = Math.max(0,Math.min(1,(x*(width/rect.width)-pad.l)/innerW));
+        setHover(Math.round(ratio*(data.length-1)));
+      }}
+      onMouseMove={e=>{
+        const rect = e.target.closest('svg').getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const ratio = Math.max(0,Math.min(1,(x*(width/rect.width)-pad.l)/innerW));
+        setHover(Math.round(ratio*(data.length-1)));
+      }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={rising?'#2F9E6E':'#C4432F'} stopOpacity="0.25"/>
+          <stop offset="100%" stopColor={rising?'#2F9E6E':'#C4432F'} stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      {[0,1,2,3].map(i=>{
+        const y = pad.t + (innerH/3)*i;
+        const val = Math.round(max-(range/3)*i);
+        return <g key={i}><line x1={pad.l} x2={width-pad.r} y1={y} y2={y} stroke="#F0F3F0" strokeWidth="1"/><text x={2} y={y+3} fontSize="9" fill="#AAB6AE">{val}</text></g>;
+      })}
+      <path d={areaPath} fill={`url(#${gid})`} />
+      <path d={path} fill="none" stroke={rising?'#2F9E6E':'#C4432F'} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
+      {pts[h] && <line x1={pts[h][0]} x2={pts[h][0]} y1={pad.t} y2={pad.t+innerH} stroke="#AAB6AE" strokeDasharray="3,3" strokeWidth="1"/>}
+      {pts[h] && <circle cx={pts[h][0]} cy={pts[h][1]} r="4" fill={rising?'#2F9E6E':'#C4432F'} stroke="#fff" strokeWidth="2"/>}
+      {pts[h] && (
+        <g>
+          <rect x={Math.min(Math.max(pts[h][0]-46,2),width-94)} y={2} width="92" height="30" rx="7" fill="#14201A" opacity="0.94"/>
+          <text x={Math.min(Math.max(pts[h][0]-40,8),width-88)} y={14} fontSize="9" fill="#AAB6AE">{data[h].label}</text>
+          <text x={Math.min(Math.max(pts[h][0]-40,8),width-88)} y={26} fontSize="12" fontWeight="800" fill="#fff">₹{data[h].price.toLocaleString('en-IN')}</text>
+        </g>
+      )}
+    </svg>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// SPLASH, LOGIN, REGISTER, LOCATION SETUP
+// ==========================================================================
+function SplashScreen({ onDone }){
+  React.useEffect(()=>{ const t=setTimeout(onDone, 1600); return ()=>clearTimeout(t); },[]);
+  return (
+    <div className="absolute inset-0 bg-forest-900 flex flex-col items-center justify-center gap-4">
+      <div className="splash-pulse w-20 h-20 rounded-3xl bg-white/10 flex items-center justify-center">
+        <Icon name="leaf" size={38} className="text-white"/>
+      </div>
+      <div className="text-white font-extrabold text-2xl tracking-tight">LINKATRIX</div>
+      <div className="text-white/60 text-sm text-center px-10">Better Information. Better Decisions. Better Income.</div>
+    </div>
+  );
+}
+
+function RoleCard({ selected, onClick, emoji, title, desc }){
+  return (
+    <button onClick={onClick} className={`flex-1 text-left rounded-2xl p-3.5 border-2 transition-colors ${selected?'border-forest-700 bg-forest-50':'border-ink-900/10 bg-white'}`}>
+      <div className="text-2xl">{emoji}</div>
+      <div className="font-extrabold text-ink-900 mt-1.5 text-[15px]">{title}</div>
+      <div className="text-[11px] text-ink-500 mt-0.5 leading-snug">{desc}</div>
+    </button>
+  );
+}
+
+function LoginScreen({ onLogin, goRegister }){
+  const [role, setRole] = React.useState('farmer');
+  const [name, setName] = React.useState('');
+  const [mobile, setMobile] = React.useState('');
+  const toast = useToast();
+  const DB = window.LINKATRIX;
+
+  const continueLogin = () => {
+    const demo = DB.DEMO_ACCOUNTS[role];
+    onLogin({ ...demo, name: name || demo.name, phone: mobile || demo.phone });
+  };
+  const tryDemo = () => {
+    const demo = DB.DEMO_ACCOUNTS[role];
+    onLogin(demo);
+  };
+
+  return (
+    <div className="h-full scroll-area px-5 pt-10 pb-8">
+      <div className="flex flex-col items-center">
+        <div className="w-16 h-16 rounded-2xl bg-forest-700 flex items-center justify-center">
+          <Icon name="leaf" size={30} className="text-white"/>
+        </div>
+        <div className="font-extrabold text-2xl text-ink-900 mt-3 tracking-tight">LINKATRIX</div>
+        <div className="text-ink-500 text-sm mt-1">Smarter decisions for better farming</div>
+      </div>
+
+      <div className="mt-8">
+        <div className="font-extrabold text-xl text-ink-900">Welcome back 👋</div>
+        <div className="text-ink-500 text-sm mt-1">Make smarter decisions for your farm.</div>
+      </div>
+
+      <div className="mt-6">
+        <div className="text-xs font-bold text-ink-500 mb-2 uppercase tracking-wide">Choose your role</div>
+        <div className="flex gap-3">
+          <RoleCard selected={role==='farmer'} onClick={()=>setRole('farmer')} emoji="🌾" title="Farmer" desc="Manage crops, prices and selling decisions." />
+          <RoleCard selected={role==='buyer'} onClick={()=>setRole('buyer')} emoji="🛒" title="Buyer" desc="Discover farmers and agricultural listings." />
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-3">
+        <div>
+          <label className="text-xs font-bold text-ink-500">Your Name</label>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Ramesh Kumar"
+            className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-ink-500">Mobile Number</label>
+          <input value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="10-digit mobile number" inputMode="numeric"
+            className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-ink-500">Password</label>
+          <input type="password" placeholder="••••••••"
+            className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+        </div>
+      </div>
+
+      <Button className="w-full mt-6" size="lg" onClick={continueLogin}>Login <Icon name="arrowRight" size={17}/></Button>
+      <button onClick={goRegister} className="w-full text-center text-forest-700 font-bold text-sm mt-4">Create Account</button>
+      <button onClick={tryDemo} className="w-full text-center text-ink-500 font-semibold text-xs mt-5 underline underline-offset-2">Try Demo</button>
+      <div className="text-center text-[11px] text-ink-300 mt-6">Prototype Demo · Any valid details can be used</div>
+    </div>
+  );
+}
+
+function RegisterScreen({ onBack, onRegistered }){
+  const [role, setRole] = React.useState('farmer');
+  const [form, setForm] = React.useState({ name:'', mobile:'', email:'', password:'', place:'', state:'', crop:'tomato', land:'', business:'', category:'' });
+  const set = (k,v)=>setForm(f=>({...f,[k]:v}));
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="Create Account" onBack={onBack} />
+      <div className="flex-1 scroll-area px-5 py-5">
+        <div className="text-xs font-bold text-ink-500 mb-2 uppercase tracking-wide">I am a</div>
+        <div className="flex gap-3 mb-5">
+          <RoleCard selected={role==='farmer'} onClick={()=>setRole('farmer')} emoji="🌾" title="Farmer" desc="Sell your crops smarter." />
+          <RoleCard selected={role==='buyer'} onClick={()=>setRole('buyer')} emoji="🛒" title="Buyer" desc="Source verified crops." />
+        </div>
+        <div className="space-y-3">
+          {[['name','Full Name'],['mobile','Mobile Number'],['email','Email'],['password','Password'],['place','Village / City'],['state','State']].map(([k,label])=>(
+            <div key={k}>
+              <label className="text-xs font-bold text-ink-500">{label}</label>
+              <input type={k==='password'?'password':'text'} value={form[k]} onChange={e=>set(k,e.target.value)}
+                className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+            </div>
+          ))}
+          {role==='farmer' ? (
+            <>
+              <div>
+                <label className="text-xs font-bold text-ink-500">Main Crop</label>
+                <select value={form.crop} onChange={e=>set('crop',e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+                  {window.LINKATRIX.CROPS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-ink-500">Land / Area (optional)</label>
+                <input value={form.land} onChange={e=>set('land',e.target.value)} placeholder="e.g. 2 acres"
+                  className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="text-xs font-bold text-ink-500">Business Name</label>
+                <input value={form.business} onChange={e=>set('business',e.target.value)}
+                  className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-ink-500">Buyer Category</label>
+                <input value={form.category} onChange={e=>set('category',e.target.value)} placeholder="e.g. Wholesaler"
+                  className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+              </div>
+            </>
+          )}
+        </div>
+        <Button className="w-full mt-6" size="lg" onClick={()=>onRegistered({ name: form.name||'New User', role: role.toUpperCase(), phone: form.mobile||'0000000000', location: form.state||'Haryana', crop: form.crop, quantity:0 })}>
+          Create Account <Icon name="arrowRight" size={17}/>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function LocationSetupScreen({ onDone }){
+  const [mode, setMode] = React.useState(null);
+  const [state, setState] = React.useState('Haryana');
+  const [district, setDistrict] = React.useState('Sonipat');
+  const [mandi, setMandi] = React.useState('Azadpur Mandi');
+  return (
+    <div className="h-full flex flex-col px-5 pt-8">
+      <div className="w-12 h-12 rounded-2xl bg-forest-100 text-forest-700 flex items-center justify-center"><Icon name="mapPin" size={22}/></div>
+      <div className="font-extrabold text-xl text-ink-900 mt-4">Where is your farm located?</div>
+      <div className="text-ink-500 text-sm mt-1">This helps us show mandi prices near you.</div>
+      <div className="mt-6 space-y-3">
+        <button onClick={()=>{ setMode('gps'); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 ${mode==='gps'?'border-forest-700 bg-forest-50':'border-ink-900/10 bg-white'}`}>
+          <Icon name="gps" size={20} className="text-forest-700"/>
+          <div className="text-left"><div className="font-bold text-ink-900 text-sm">Use Current Location</div><div className="text-xs text-ink-500">Fastest — uses GPS</div></div>
+        </button>
+        <button onClick={()=>setMode('manual')} className={`w-full flex items-center gap-3 p-4 rounded-2xl border-2 ${mode==='manual'?'border-forest-700 bg-forest-50':'border-ink-900/10 bg-white'}`}>
+          <Icon name="edit" size={20} className="text-forest-700"/>
+          <div className="text-left"><div className="font-bold text-ink-900 text-sm">Select Location Manually</div><div className="text-xs text-ink-500">Choose state, district & mandi</div></div>
+        </button>
+      </div>
+      {mode==='gps' && (
+        <div className="mt-4 rounded-2xl bg-amber-100 text-amber-700 text-xs font-semibold px-4 py-3 fade-up flex items-center gap-2">
+          <Icon name="info" size={14}/> GPS permission unavailable in this demo — showing approximate location.
+        </div>
+      )}
+      {mode==='manual' && (
+        <div className="mt-4 space-y-3 fade-up">
+          <div><label className="text-xs font-bold text-ink-500">State</label>
+            <select value={state} onChange={e=>setState(e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {['Haryana','Punjab','Uttar Pradesh'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div><label className="text-xs font-bold text-ink-500">District</label>
+            <select value={district} onChange={e=>setDistrict(e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {['Sonipat','Panipat','Gurugram'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div><label className="text-xs font-bold text-ink-500">Mandi</label>
+            <select value={mandi} onChange={e=>setMandi(e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {window.LINKATRIX.MANDIS.map(m=><option key={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+      <div className="flex-1"/>
+      <Button className="w-full mb-8" size="lg" disabled={!mode} onClick={()=>onDone({ location: mode==='manual'?district+', '+state:'Haryana', mandi: mode==='manual'?mandi:'Azadpur Mandi', approximate: mode==='gps' })}>
+        Continue <Icon name="arrowRight" size={17}/>
+      </Button>
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// FARMER HOME — the primary screen
+// ==========================================================================
+function TodayTipSheet({ open, onClose, tip }){
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Why this recommendation?">
+      <div className="space-y-3 text-sm text-ink-700 pb-2">
+        <p className="leading-relaxed">{tip.reason}</p>
+        <div className="rounded-xl bg-forest-50 p-3.5 space-y-2">
+          <div className="flex justify-between"><span className="text-ink-500">Priority</span><span className="font-bold text-ink-900">{tip.priority}</span></div>
+          <div className="flex justify-between"><span className="text-ink-500">Expected condition</span><span className="font-bold text-ink-900">{tip.expected}</span></div>
+          <div className="flex justify-between"><span className="text-ink-500">Suggested action</span><span className="font-bold text-ink-900">{tip.action}</span></div>
+        </div>
+        <div className="text-xs text-ink-300 flex items-center gap-1.5"><Icon name="info" size={13}/> This is a demo recommendation based on general weather conditions, not a verified forecast.</div>
+      </div>
+    </BottomSheet>
+  );
+}
+
+function FarmerHome({ user, setView, online }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  const weather = DB.weatherEngine();
+  const tip = DB.farmTipFromWeather(weather);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+  const crop = DB.CROPS.find(c=>c.id===(user.crop||'tomato'));
+  const cropPrice = crop.history[crop.history.length-1].price;
+  const snapshotCrops = ['tomato','onion','wheat'].map(id=>DB.CROPS.find(c=>c.id===id));
+
+  return (
+    <div className="h-full scroll-area pb-24">
+      <OfflineBanner online={online} />
+      <div className="px-5 pt-5 flex items-center justify-between">
+        <div>
+          <div className="font-extrabold text-lg text-ink-900">{t('goodMorning')}, {user.role==='FARMER'?'Farmer':'Buyer'} 🌾</div>
+          <div className="text-ink-500 text-xs flex items-center gap-1 mt-0.5"><Icon name="mapPin" size={12}/> {user.location||'Haryana'}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={()=>setView('weather')} className="w-9 h-9 rounded-full bg-ink-900/5 flex items-center justify-center text-ink-700"><Icon name="cloud" size={17}/></button>
+          <button className="w-9 h-9 rounded-full bg-ink-900/5 flex items-center justify-center text-ink-700 relative"><Icon name="bell" size={17}/><span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-600 rounded-full"/></button>
+          <button onClick={()=>setView('profile')} className="w-9 h-9 rounded-full bg-forest-700 text-white flex items-center justify-center font-bold text-xs">{user.name?.[0]}</button>
+        </div>
+      </div>
+
+      <div className="px-5 mt-5">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide">{t('whatToDoToday')}</div>
+        <Card className="mt-2 !p-0 overflow-hidden border-2 border-forest-700/10">
+          <div className="p-4">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <Icon name={tip.icon} size={22} className="text-forest-700"/>
+                <Badge tone="good">{tip.badge}</Badge>
+              </div>
+            </div>
+            <div className="font-extrabold text-[17px] text-ink-900 mt-3 leading-snug">{tip.title}</div>
+            <p className="text-sm text-ink-500 mt-1.5 leading-relaxed">{tip.reason}</p>
+            <div className="flex items-center justify-between mt-4">
+              <span className="text-[11px] text-ink-300 flex items-center gap-1"><Icon name="info" size={12}/> {t('demoRecommendation')}</span>
+              <button onClick={()=>setSheetOpen(true)} className="text-forest-700 font-bold text-sm">Why?</button>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">QUICK ACTIONS</div>
+        <div className="grid grid-cols-3 gap-3">
+          {[['add','plus','Add Crop'],['price','trendUp','Check Price'],['recommendation','handshake','Recommendation'],['buyers','users','Find Buyer'],['knowledge','book','Learn'],['weather','cloud','Weather']].map(([v,ic,label])=>(
+            <button key={v} onClick={()=>setView(v)} className="bg-white rounded-2xl border border-ink-900/[0.06] py-3.5 flex flex-col items-center gap-1.5 active:scale-95 transition-transform">
+              <div className="w-9 h-9 rounded-xl bg-forest-50 text-forest-700 flex items-center justify-center"><Icon name={ic} size={17}/></div>
+              <span className="text-[11px] font-bold text-ink-700">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide">{t('marketSnapshot')}</div>
+          <Badge tone={DB.MARKET_API_CONFIGURED?'live':'demo'}>{DB.MARKET_API_CONFIGURED?t('liveData'):t('demoData')}</Badge>
+        </div>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+          {snapshotCrops.map(c=>{
+            const last = c.history[c.history.length-1].price, prev = c.history[c.history.length-2].price;
+            const pct = (((last-prev)/prev)*100).toFixed(1);
+            const up = pct>=0;
+            return (
+              <button key={c.id} onClick={()=>setView('price', {crop:c.id})} className="min-w-[124px] bg-white rounded-2xl border border-ink-900/[0.06] p-3.5 text-left active:scale-95 transition-transform">
+                <div className="font-bold text-ink-900 text-sm">{c.name}</div>
+                <div className="font-extrabold text-ink-900 mt-1">₹{last.toLocaleString('en-IN')}/q</div>
+                <div className={`flex items-center gap-1 text-xs font-bold mt-1 ${up?'text-forest-600':'text-red-600'}`}>
+                  <Icon name={up?'trendUp':'trendDown'} size={12}/> {up?'+':''}{pct}%
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <Button variant="soft" size="sm" className="w-full mt-3" onClick={()=>setView('price')}>{t('viewPriceTrend')}</Button>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">{t('yourCrop')}</div>
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-extrabold text-ink-900">{crop.name}</div>
+              <div className="text-xs text-ink-500 mt-0.5">Quantity: {user.quantity||20} Quintals</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-ink-500">Estimated value</div>
+              <div className="font-extrabold text-forest-700">₹{(cropPrice*(user.quantity||20)).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" className="w-full mt-3" onClick={()=>setView('recommendation',{crop:crop.id})}>{t('viewRecommendation')}</Button>
+        </Card>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">{t('nearbyBuyers')}</div>
+        <div className="space-y-3">
+          {DB.BUYERS.slice(0,2).map(b=>(
+            <Card key={b.id} className="flex items-center justify-between">
+              <div>
+                <div className="font-bold text-ink-900 text-sm flex items-center gap-1.5">{b.name} {b.verified && <Icon name="shield" size={13} className="text-forest-600"/>}</div>
+                <div className="text-xs text-ink-500 mt-0.5">{b.trustScore}/100 Trust Score · {b.distanceKm} km away</div>
+              </div>
+              <Button size="sm" variant="soft" onClick={()=>setView('buyer-profile',{buyerId:b.id})}>{t('viewBuyer')}</Button>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">{t('knowledgeToday')}</div>
+        <Card onClick={()=>setView('knowledge-article',{cat:'fertilizers'})} className="flex items-center justify-between">
+          <div className="text-sm font-bold text-ink-900 pr-3">Which fertilizer should you use after rain?</div>
+          <Icon name="chevronRight" size={18} className="text-ink-300 shrink-0"/>
+        </Card>
+      </div>
+
+      <DataSourcesFooter />
+      <TodayTipSheet open={sheetOpen} onClose={()=>setSheetOpen(false)} tip={tip} />
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// PRICE TREND — most technically important screen
+// ==========================================================================
+function PriceInfoSheet({ open, onClose, crop, live }){
+  const DB = window.LINKATRIX;
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Where does this price come from?">
+      <p className="text-sm text-ink-700 leading-relaxed">Market price data is sourced from data.gov.in's "Current Daily Price of Various Commodities from Various Markets (Mandi)" dataset, generated from the AGMARKNET portal (Ministry of Agriculture &amp; Farmers Welfare).</p>
+      <div className="mt-3 rounded-xl bg-ink-900/[0.03] p-3.5 space-y-2 text-sm">
+        <div className="flex justify-between"><span className="text-ink-500">Market</span><span className="font-bold text-ink-900">{live?.topMandi||'—'}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Arrival date</span><span className="font-bold text-ink-900">{live?.arrivalDate||'—'}</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Price type</span><span className="font-bold text-ink-900">Modal price</span></div>
+        <div className="flex justify-between"><span className="text-ink-500">Last updated</span><span className="font-bold text-ink-900">{live?'Live — just now':'Demo — not connected this session'}</span></div>
+      </div>
+      <div className="text-xs text-ink-300 mt-3 flex items-center gap-1.5"><Icon name="info" size={13}/> We do not label data "live" unless the API actually returned current data.</div>
+    </BottomSheet>
+  );
+}
+
+function MarketApiSettingsSheet({ open, onClose, status, onRetry }){
+  const DB = window.LINKATRIX;
+  const [key, setKey] = React.useState(DB.getMarketApiKey());
+  const toast = useToast();
+  const save = () => {
+    DB.setMarketApiKey(key.trim());
+    toast('API key saved');
+    onClose();
+    onRetry && onRetry();
+  };
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Live Market Data Settings">
+      <div className="text-sm text-ink-700 leading-relaxed">
+        Prices come from <b>data.gov.in</b>'s official Agmarknet mandi-price API. This file calls it directly from your browser — no backend server.
+      </div>
+      <div className={`mt-3 rounded-xl px-3.5 py-3 text-xs font-semibold flex items-center gap-2 ${status==='live'?'bg-forest-100 text-forest-700':status==='error'?'bg-red-100 text-red-600':'bg-amber-100 text-amber-700'}`}>
+        <Icon name={status==='live'?'check':status==='error'?'alertTriangle':'info'} size={15}/>
+        {status==='live' && 'Connected — showing live Agmarknet data'}
+        {status==='error' && "Couldn't reach the live API — showing demo data"}
+        {status!=='live' && status!=='error' && 'Not fetched yet'}
+      </div>
+      <div className="mt-4">
+        <label className="text-xs font-bold text-ink-500">data.gov.in API Key</label>
+        <input value={key} onChange={e=>setKey(e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[13px] font-mono" />
+        {DB.usingDefaultKey() && (
+          <div className="text-[11px] text-amber-600 mt-1.5 flex items-start gap-1.5"><Icon name="alertTriangle" size={13} className="mt-0.5 shrink-0"/> You're using the public shared sample key — it is heavily rate-limited by everyone using it. Register your own free key at data.gov.in for reliable results.</div>
+        )}
+      </div>
+      <div className="text-xs text-ink-500 mt-3 leading-relaxed">
+        <b className="text-ink-700">How to get your own free key:</b> visit data.gov.in → Sign Up (Google or govt. email) → My Account → generate API key → paste it above.
+      </div>
+      <Button className="w-full mt-4" onClick={save}>Save &amp; Retry</Button>
+    </BottomSheet>
+  );
+}
+
+function PriceTrendScreen({ setView, params, online }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  const [cropId, setCropId] = React.useState(params?.crop || 'tomato');
+  const [state, setState] = React.useState('Haryana');
+  const [range, setRange] = React.useState('30D');
+  const [query, setQuery] = React.useState('');
+  const [infoOpen, setInfoOpen] = React.useState(false);
+  const [filterOpen, setFilterOpen] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [status, setStatus] = React.useState('loading'); // loading | live | error
+  const [live, setLive] = React.useState(null);
+  const [errorMsg, setErrorMsg] = React.useState('');
+  const crop = DB.CROPS.find(c=>c.id===cropId);
+
+  const runFetch = React.useCallback(() => {
+    if(!online){ setStatus('error'); setErrorMsg('You are offline.'); return; }
+    setStatus('loading');
+    DB.fetchLiveMandiPrices({ state, cropId, limit: 100 })
+      .then(result => { setLive(result); setStatus('live'); })
+      .catch(err => { setLive(null); setStatus('error'); setErrorMsg(err.message || 'Could not reach the live API'); });
+  }, [state, cropId, online]);
+
+  React.useEffect(() => { runFetch(); }, [runFetch]);
+
+  const isLive = status==='live' && live;
+  const liveAvgModal = isLive ? Math.round(live.mandiList.reduce((a,m)=>a+m.modalPrice,0)/live.mandiList.length) : null;
+  const hasLiveTrend = isLive && live.trendSeries.length >= 2;
+
+  const rangeDays = { '1D':2, '7D':7, '30D':30, '90D':90 }[range];
+  const demoData = crop.history.slice(-rangeDays);
+  const chartData = hasLiveTrend ? live.trendSeries : demoData;
+  const current = isLive ? liveAvgModal : demoData[demoData.length-1].price;
+  const prevRef = hasLiveTrend ? live.trendSeries[live.trendSeries.length-2].price : demoData[demoData.length-2]?.price;
+  const pct = prevRef ? (((current-prevRef)/prevRef)*100).toFixed(1) : null;
+  const up = pct!==null && pct>0, flat = pct!==null && Math.abs(pct)<0.05;
+  const filtered = DB.CROPS.filter(c=> c.name.toLowerCase().includes(query.toLowerCase()) || c.nameHi.includes(query));
+  const topMandi = isLive ? live.mandiList[0] : null;
+
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('priceTrend')} onBack={()=>setView('home')} right={
+        <div className="flex items-center gap-2">
+          <Badge tone={isLive?'live':status==='loading'?'neutral':'demo'}>
+            {status==='loading' ? '⏳ Checking…' : isLive ? '🟢 '+t('liveData') : '🟡 '+t('demoData')}
+          </Badge>
+          <button onClick={()=>setSettingsOpen(true)} className="w-7 h-7 rounded-full bg-ink-900/5 flex items-center justify-center text-ink-700"><Icon name="settings" size={14}/></button>
+        </div>
+      } />
+      <div className="flex-1 scroll-area pb-8">
+        <OfflineBanner online={online} />
+        <div className="px-5 pt-4 text-xs text-ink-500">Live mandi prices from data.gov.in (Agmarknet).</div>
+
+        {status==='error' && (
+          <div className="mx-5 mt-3 rounded-2xl bg-amber-100 text-amber-700 px-4 py-3 fade-up">
+            <div className="flex items-start gap-2">
+              <Icon name="alertTriangle" size={16} className="mt-0.5 shrink-0"/>
+              <div className="text-xs leading-relaxed">
+                <b>⚠️ Market data temporarily unavailable.</b> {errorMsg} This is usually a CORS restriction (this file has no backend server to proxy the request) or the shared sample key being rate-limited. Showing demo data below.
+              </div>
+            </div>
+            <div className="flex gap-2 mt-2.5">
+              <Button size="sm" variant="soft" onClick={runFetch}><Icon name="refresh" size={13}/> Retry</Button>
+              <Button size="sm" variant="ghost" onClick={()=>setSettingsOpen(true)}>Check API Key</Button>
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 mt-3 flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-2 bg-white border border-ink-900/10 rounded-2xl px-3.5 py-2.5">
+            <Icon name="search" size={16} className="text-ink-300"/>
+            <input value={query} onChange={e=>setQuery(e.target.value)} placeholder={t('searchCrop')} className="w-full text-sm bg-transparent"/>
+          </div>
+          <button onClick={()=>setFilterOpen(true)} className="w-11 h-11 rounded-2xl bg-white border border-ink-900/10 flex items-center justify-center text-ink-700 relative">
+            <Icon name="filter" size={17}/>
+          </button>
+        </div>
+        {query && (
+          <div className="px-5 mt-2 flex flex-wrap gap-2 fade-up">
+            {filtered.map(c=>(
+              <button key={c.id} onClick={()=>{setCropId(c.id); setQuery('');}} className="px-3 py-1.5 rounded-full bg-forest-50 text-forest-700 text-xs font-bold">{c.name}</button>
+            ))}
+          </div>
+        )}
+
+        <div className="px-5 mt-3 flex gap-2 overflow-x-auto no-scrollbar">
+          {DB.CROPS.map(c=>(
+            <button key={c.id} onClick={()=>setCropId(c.id)} className={`px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap ${cropId===c.id?'bg-forest-700 text-white':'bg-white border border-ink-900/10 text-ink-700'}`}>{c.name}</button>
+          ))}
+        </div>
+
+        <div className="px-5 mt-4 flex items-center gap-1 text-xs text-ink-500"><Icon name="mapPin" size={13}/> {state}{topMandi ? ' · '+topMandi.mandi : ''}</div>
+
+        {status==='loading' ? (
+          <div className="mx-5 mt-3 space-y-2">
+            <Skeleton className="h-24 rounded-2xl" />
+          </div>
+        ) : (
+          <Card className="mx-5 mt-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5"><span className="font-extrabold text-ink-900">{crop.name}</span><button onClick={()=>setInfoOpen(true)}><Icon name="info" size={14} className="text-ink-300"/></button></div>
+                <div className="font-extrabold text-2xl text-ink-900 mt-1">₹{current.toLocaleString('en-IN')}<span className="text-xs font-semibold text-ink-500"> /Quintal</span></div>
+              </div>
+              {pct!==null ? (
+                <div className={`flex items-center gap-1 font-extrabold text-sm px-2.5 py-1.5 rounded-xl ${flat?'bg-ink-900/5 text-ink-500':up?'bg-forest-100 text-forest-700':'bg-red-100 text-red-600'}`}>
+                  <Icon name={flat?'trendUp':up?'trendUp':'trendDown'} size={14}/> {up?'+':''}{pct}%
+                </div>
+              ) : (
+                <Badge tone="neutral">No prior data</Badge>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+              <div><div className="text-ink-300">{isLive?'Mandis found':'Previous'}</div><div className="font-bold text-ink-900">{isLive?live.mandiList.length:('₹'+demoData[demoData.length-2]?.price.toLocaleString('en-IN'))}</div></div>
+              <div><div className="text-ink-300">Top Market</div><div className="font-bold text-ink-900">{topMandi?topMandi.mandi:'Azadpur'}</div></div>
+              <div><div className="text-ink-300">Date</div><div className="font-bold text-ink-900">{topMandi?topMandi.arrivalDate:'12 Sep 2026'}</div></div>
+            </div>
+          </Card>
+        )}
+
+        {isLive && (
+          <div className="px-5 mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-extrabold text-ink-900 text-sm">Live mandi prices — {state}</div>
+              <Badge tone="live">🟢 {live.mandiList.length} markets</Badge>
+            </div>
+            <div className="space-y-2">
+              {live.mandiList.slice(0,6).map(m=>(
+                <Card key={m.mandi} className="flex items-center justify-between !py-3">
+                  <div>
+                    <div className="font-bold text-ink-900 text-sm">{m.mandi}</div>
+                    <div className="text-[11px] text-ink-500">{m.district} · {m.arrivalDate}</div>
+                  </div>
+                  <div className="text-right text-xs">
+                    <div className="font-extrabold text-ink-900">₹{m.modalPrice.toLocaleString('en-IN')}</div>
+                    <div className="text-ink-300">₹{m.minPrice}–₹{m.maxPrice}</div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 mt-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-extrabold text-ink-900 text-sm">{crop.name} Price Trend</div>
+            {!hasLiveTrend && (
+              <div className="flex gap-1 bg-ink-900/5 rounded-full p-1">
+                {['1D','7D','30D','90D'].map(r=>(
+                  <button key={r} onClick={()=>setRange(r)} className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${range===r?'bg-white text-forest-700 shadow-sm':'text-ink-500'}`}>{r}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          {status==='loading' ? <Skeleton className="h-[190px] rounded-2xl mx-0" /> : (
+            <Card className="!p-3">
+              <StockChart data={chartData} color={up?'#2F9E6E':'#C4432F'} />
+            </Card>
+          )}
+          <div className="text-[11px] text-ink-300 mt-2 flex items-center gap-1.5">
+            <Icon name="info" size={12}/>
+            {hasLiveTrend ? `Built from ${live.trendSeries.length} live arrival dates returned by the API.` : isLive ? 'Live current price above; not enough live arrival dates yet for a full trend, so this chart uses demo history.' : 'These numbers are demo examples until the live API responds.'}
+          </div>
+        </div>
+
+        <div className="px-5 mt-5">
+          <Button className="w-full" size="lg" onClick={()=>setView('recommendation',{crop:cropId})}>{t('getRecommendation')} <Icon name="arrowRight" size={16}/></Button>
+        </div>
+        <DataSourcesFooter />
+      </div>
+      <PriceInfoSheet open={infoOpen} onClose={()=>setInfoOpen(false)} crop={crop} live={isLive?{topMandi:topMandi.mandi, arrivalDate:topMandi.arrivalDate}:null} />
+      <MarketApiSettingsSheet open={settingsOpen} onClose={()=>setSettingsOpen(false)} status={status} onRetry={runFetch} />
+      <BottomSheet open={filterOpen} onClose={()=>setFilterOpen(false)} title="Filters">
+        <div className="space-y-3 pb-2">
+          <div>
+            <label className="text-xs font-bold text-ink-500">State</label>
+            <select value={state} onChange={e=>setState(e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {DB.INDIAN_STATES.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          {['District','Mandi','Date'].map(f=>(
+            <div key={f}>
+              <label className="text-xs font-bold text-ink-500">{f}</label>
+              <select className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]"><option>Any</option></select>
+            </div>
+          ))}
+          <div className="text-[11px] text-ink-300 flex items-center gap-1.5"><Icon name="info" size={12}/> Only State is wired to the live API in this prototype.</div>
+          <Button className="w-full mt-2" onClick={()=>{setFilterOpen(false); runFetch();}}>Apply Filters</Button>
+        </div>
+      </BottomSheet>
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// ADD CROP flow + success screen
+// ==========================================================================
+function AddCropScreen({ setView, user }){
+  const DB = window.LINKATRIX;
+  const toast = useToast();
+  const [form, setForm] = React.useState({ crop:'tomato', quantity:'', quality:'Good' });
+  const [image, setImage] = React.useState(null);
+  const [progress, setProgress] = React.useState(0);
+  const inputRef = React.useRef();
+  const set = (k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const handleFile = (files) => {
+    const f = files[0]; if(!f) return;
+    const reader = new FileReader();
+    let p=10; setProgress(10);
+    const timer = setInterval(()=>{p+=30; setProgress(Math.min(p,95)); if(p>=95) clearInterval(timer);}, 100);
+    reader.onload = e => { setProgress(100); setTimeout(()=>{setImage(e.target.result); setProgress(0);},250); };
+    reader.readAsDataURL(f);
+  };
+
+  const submit = () => {
+    if(!form.quantity){ toast('Enter quantity','error'); return; }
+    const listing = { id:'L'+Math.floor(1000+Math.random()*9000), cropId: form.crop, quantity: Number(form.quantity), quality: form.quality, image, createdAt:new Date().toISOString().slice(0,10) };
+    DB.getListings.add(listing);
+    setView('add-success', { listing });
+  };
+
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="Add Your Crop" onBack={()=>setView('home')} />
+      <div className="flex-1 scroll-area px-5 py-5 pb-8">
+        <div>
+          <label className="text-xs font-bold text-ink-500">Crop</label>
+          <select value={form.crop} onChange={e=>set('crop',e.target.value)} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+            {DB.CROPS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div className="mt-3">
+          <label className="text-xs font-bold text-ink-500">Quantity (Quintals)</label>
+          <input type="number" value={form.quantity} onChange={e=>set('quantity',e.target.value)} placeholder="e.g. 20"
+            className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+        </div>
+        <div className="mt-3">
+          <label className="text-xs font-bold text-ink-500">Quality</label>
+          <div className="grid grid-cols-4 gap-2 mt-1.5">
+            {['Excellent','Good','Average','Poor'].map(q=>(
+              <button key={q} onClick={()=>set('quality',q)} className={`py-2.5 rounded-xl text-[12px] font-bold border-2 ${form.quality===q?'border-forest-700 bg-forest-50 text-forest-700':'border-ink-900/10 text-ink-500'}`}>{q}</button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-5">
+          <label className="text-xs font-bold text-ink-500">Add Crop Photo (Optional)</label>
+          <div onClick={()=>inputRef.current.click()} className="mt-1.5 rounded-2xl border-2 border-dashed border-ink-900/15 bg-white p-5 text-center">
+            <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={e=>handleFile(e.target.files)} />
+            {image ? <img src={image} className="max-h-32 mx-auto rounded-xl object-cover"/> : (
+              <>
+                <Icon name="camera" size={22} className="mx-auto text-ink-300"/>
+                <div className="text-sm font-bold text-ink-700 mt-2">📷 Upload Photo</div>
+                <div className="text-[11px] text-ink-300 mt-1">Photo is optional and currently used only for listing/reference.</div>
+              </>
+            )}
+            {progress>0 && <div className="w-full h-1.5 bg-ink-900/10 rounded-full mt-3 overflow-hidden"><div className="h-full bg-forest-700 transition-all" style={{width:`${progress}%`}}/></div>}
+          </div>
+        </div>
+        <Card className="mt-5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm">
+            <Icon name="mapPin" size={16} className="text-forest-700"/>
+            <div><div className="font-bold text-ink-900">{user.location||'Haryana'}</div><div className="text-xs text-ink-500">Mandi: {user.mandi||'Azadpur Mandi'}</div></div>
+          </div>
+          <button className="text-forest-700 text-xs font-bold">Change</button>
+        </Card>
+        <Button className="w-full mt-6" size="lg" onClick={submit}>Add Crop</Button>
+      </div>
+    </div>
+  );
+}
+
+function AddCropSuccessScreen({ setView, params }){
+  const DB = window.LINKATRIX;
+  const listing = params?.listing;
+  const crop = DB.CROPS.find(c=>c.id===listing?.cropId) || DB.CROPS[0];
+  return (
+    <div className="h-full flex flex-col items-center justify-center px-8 text-center">
+      <div className="w-20 h-20 rounded-full bg-forest-100 text-forest-700 flex items-center justify-center pop-in">
+        <Icon name="check" size={36} strokeWidth={2.5}/>
+      </div>
+      <div className="font-extrabold text-xl text-ink-900 mt-5">✓ Crop Added Successfully</div>
+      <div className="mt-3 text-lg font-bold text-ink-900">{crop.name}</div>
+      <div className="text-ink-500 text-sm">{listing?.quantity} Quintals</div>
+      <Button className="w-full mt-8" size="lg" onClick={()=>setView('recommendation',{crop:crop.id, quantity:listing?.quantity})}>Get Recommendation <Icon name="arrowRight" size={16}/></Button>
+      <button onClick={()=>setView('home')} className="text-ink-500 font-semibold text-sm mt-4">Back to Home</button>
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// RECOMMENDATION — the core LINKATRIX feature
+// ==========================================================================
+function ExplainSheet({ open, onClose, r }){
+  return (
+    <BottomSheet open={open} onClose={onClose} title={`Why are we recommending ${r.recommendation.replace('_',' ')}?`}>
+      <div className="space-y-2.5 pb-2">
+        {r.factors.map(f=>(
+          <div key={f.label} className="flex items-center justify-between text-sm py-1.5 border-b border-ink-900/[0.05] last:border-0">
+            <span className="text-ink-500">{f.label}</span>
+            <span className={`font-bold ${f.positive===true?'text-forest-700':f.positive===false?'text-red-600':'text-ink-900'}`}>{f.value}</span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-ink-700 font-bold text-sm">Recommendation confidence</span>
+          <span className="font-extrabold text-forest-700">{r.confidence}%</span>
+        </div>
+        <div className="w-full h-2 bg-ink-900/5 rounded-full overflow-hidden"><div className="h-full bg-forest-700" style={{width:`${r.confidence}%`}}/></div>
+        <Badge tone="neutral" className="mt-2">Rule-Based Prototype</Badge>
+      </div>
+    </BottomSheet>
+  );
+}
+
+function RecommendationScreen({ setView, params, user }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  const cropId = params?.crop || user.crop || 'tomato';
+  const quantity = params?.quantity || user.quantity || 20;
+  const crop = DB.CROPS.find(c=>c.id===cropId);
+  const r = DB.recommendationEngine(cropId);
+  const [explainOpen, setExplainOpen] = React.useState(false);
+  const mandisSorted = [...DB.MANDIS].map(m=>({...m, price: DB.mandiPriceFor(cropId,m)})).sort((a,b)=>b.price-a.price);
+  const diffTotal = r.diffPerUnit*quantity;
+  const label = r.recommendation==='WAIT'?'WAIT':r.recommendation==='SELL_NOW'?'SELL NOW':'COMPARE MANDIS';
+  const tone = r.recommendation==='WAIT'?'text-amber-600 bg-amber-100':r.recommendation==='SELL_NOW'?'text-forest-700 bg-forest-100':'text-ink-700 bg-ink-900/5';
+
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('yourSellingRecommendation')} onBack={()=>setView('home')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <Card className="flex items-center justify-between">
+          <div><div className="font-extrabold text-ink-900">{crop.name}</div><div className="text-xs text-ink-500">{quantity} Quintals</div></div>
+          <Icon name="package" size={22} className="text-forest-700"/>
+        </Card>
+
+        <div className="mt-5">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">{t('nearbyMandis')}</div>
+          <div className="space-y-2.5">
+            {mandisSorted.map((m,i)=>(
+              <Card key={m.id} className={`flex items-center justify-between ${i===0?'border-2 border-forest-700/20':''}`}>
+                <div>
+                  <div className="font-bold text-ink-900 text-sm">{m.name}</div>
+                  <div className="text-xs text-ink-500 mt-0.5">{m.distanceKm} km away</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-extrabold text-ink-900">₹{m.price.toLocaleString('en-IN')}/q</div>
+                  <div className={`flex items-center gap-1 justify-end text-xs font-bold ${m.trend>=0?'text-forest-600':'text-red-600'}`}><Icon name={m.trend>=0?'trendUp':'trendDown'} size={11}/>{m.trend>=0?'+':''}{m.trend}%</div>
+                </div>
+                {i===0 && <div className="absolute"></div>}
+              </Card>
+            ))}
+            {mandisSorted[0] && <div className="text-right"><Badge tone="good">{t('bestPrice')}</Badge></div>}
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">LINKATRIX RECOMMENDATION</div>
+          <Card className="!p-5 text-center border-2 border-forest-700/10">
+            <div className={`inline-block px-4 py-1.5 rounded-full font-extrabold text-xl ${tone}`}>{label}</div>
+            <p className="text-sm text-ink-500 mt-3 leading-relaxed">
+              {r.recommendation==='WAIT' && 'Recent market prices show an upward trend. Based on historical price movement, waiting may provide a better expected price.'}
+              {r.recommendation==='SELL_NOW' && 'Recent market prices show a downward trend. Selling soon may help avoid further price drops.'}
+              {r.recommendation==='COMPARE_MANDIS' && 'Price movement is mixed — comparing nearby mandis may offer a better outcome than waiting or selling immediately.'}
+            </p>
+            <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+              <div><div className="text-[11px] text-ink-300">Current</div><div className="font-extrabold text-ink-900 text-sm">₹{r.current}/q</div></div>
+              <div><div className="text-[11px] text-ink-300">Expected</div><div className="font-extrabold text-ink-900 text-sm">₹{r.expected}/q</div></div>
+              <div><div className="text-[11px] text-ink-300">Difference</div><div className={`font-extrabold text-sm ${r.diffPerUnit>=0?'text-forest-700':'text-red-600'}`}>{r.diffPerUnit>=0?'+':''}₹{r.diffPerUnit}/q</div></div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-ink-900/[0.06] text-sm">
+              For {quantity} quintals: <span className={`font-extrabold ${diffTotal>=0?'text-forest-700':'text-red-600'}`}>{diffTotal>=0?'+':''}₹{diffTotal.toLocaleString('en-IN')}</span>
+            </div>
+            <button onClick={()=>setExplainOpen(true)} className="text-forest-700 font-bold text-sm mt-4">Why are we recommending {label}?</button>
+            <div className="text-[11px] text-ink-300 mt-3 flex items-center justify-center gap-1.5"><Icon name="info" size={12}/> Profit is never guaranteed — this is a rule-based estimate.</div>
+          </Card>
+        </div>
+
+        <div className="flex gap-3 mt-5">
+          <Button variant="outline" className="flex-1" onClick={()=>setView('buyers')}>{t('recommendedBuyers')}</Button>
+          <Button className="flex-1" onClick={()=>setView('price',{crop:cropId})}>{t('priceTrend')}</Button>
+        </div>
+        <DataSourcesFooter />
+      </div>
+      <ExplainSheet open={explainOpen} onClose={()=>setExplainOpen(false)} r={r} />
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// BUYERS + PROFILE
+// ==========================================================================
+function BuyersScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('recommendedBuyers')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <div className="text-sm text-ink-500 mb-4">Trusted buyers near your location.</div>
+        <div className="space-y-3">
+          {DB.BUYERS.map(b=>(
+            <Card key={b.id} onClick={()=>setView('buyer-profile',{buyerId:b.id})}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-extrabold text-ink-900 flex items-center gap-1.5">{b.name} {b.verified && <Icon name="shield" size={14} className="text-forest-600"/>}</div>
+                  <div className="text-xs text-ink-500 mt-1 flex items-center gap-1"><Icon name="mapPin" size={11}/> {b.distanceKm} km away</div>
+                </div>
+                <TrustRing score={b.trustScore} size={48} />
+              </div>
+              <div className="flex items-center gap-4 mt-3 text-xs">
+                <div><span className="text-ink-300">Interested in </span><span className="font-bold text-ink-900">{b.interestedIn}</span></div>
+              </div>
+              <div className="text-xs text-ink-500 mt-1">Expected quantity: <span className="font-bold text-ink-900">{b.qty} Quintals</span></div>
+              <Button size="sm" variant="soft" className="w-full mt-3">View Buyer</Button>
+            </Card>
+          ))}
+        </div>
+        <DataSourcesFooter />
+      </div>
+    </div>
+  );
+}
+
+function BuyerProfileScreen({ setView, params }){
+  const DB = window.LINKATRIX;
+  const buyer = DB.BUYERS.find(b=>b.id===params?.buyerId) || DB.BUYERS[0];
+  const toast = useToast();
+  const rows = [['Identity Verification', buyer.breakdown.identity, 20],['Transaction History', buyer.breakdown.transactions, 30],['Payment Reliability', buyer.breakdown.payment, 25],['Ratings', buyer.breakdown.ratings, 25]];
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="Buyer Profile" onBack={()=>setView('buyers')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <Card className="flex flex-col items-center text-center !p-6">
+          <div className="w-16 h-16 rounded-full bg-forest-700 text-white flex items-center justify-center font-extrabold text-xl">{buyer.name[0]}</div>
+          <div className="font-extrabold text-lg text-ink-900 mt-3 flex items-center gap-1.5">{buyer.name} {buyer.verified && <Icon name="shield" size={15} className="text-forest-600"/>}</div>
+          <div className="text-xs text-ink-500 mt-1">{buyer.distanceKm} km away</div>
+          <div className="mt-4"><TrustRing score={buyer.trustScore} size={84} /></div>
+          <div className="text-xs text-ink-500 mt-1">Trust Score</div>
+        </Card>
+
+        <div className="mt-5">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">TRUST BREAKDOWN</div>
+          <Card>
+            {rows.map(([label,val,max])=>(
+              <div key={label} className="mb-3 last:mb-0">
+                <div className="flex justify-between text-sm mb-1"><span className="text-ink-500">{label}</span><span className="font-bold text-ink-900">{val}/{max}</span></div>
+                <div className="w-full h-2 bg-ink-900/5 rounded-full overflow-hidden"><div className="h-full bg-forest-700" style={{width:`${(val/max)*100}%`}}/></div>
+              </div>
+            ))}
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <Card className="text-center !p-3"><div className="font-extrabold text-ink-900">{buyer.transactions}</div><div className="text-[10px] text-ink-500 mt-0.5">Transactions</div></Card>
+          <Card className="text-center !p-3"><div className="font-extrabold text-ink-900">{buyer.rating}/5</div><div className="text-[10px] text-ink-500 mt-0.5">Avg Rating</div></Card>
+          <Card className="text-center !p-3"><div className="font-extrabold text-ink-900">{buyer.disputeRate}%</div><div className="text-[10px] text-ink-500 mt-0.5">Dispute Rate</div></Card>
+        </div>
+        <div className="text-[11px] text-ink-300 mt-3 flex items-center gap-1.5"><Icon name="info" size={12}/> These values are demo data for prototype purposes.</div>
+        <Button className="w-full mt-5" size="lg" onClick={()=>toast('Contact request sent to '+buyer.name)}><Icon name="send" size={16}/> Contact Buyer</Button>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================================================
+// DEDICATED BUYER FLOW — Home, Browse Listings, Listing Detail + Make Offer, My Offers
+// ==========================================================================
+function BuyerHome({ user, setView, online }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  const listings = DB.FARMER_LISTINGS.slice(0,3);
+  const snapshotCrops = ['tomato','onion','wheat'].map(id=>DB.CROPS.find(c=>c.id===id));
+  const topFarmerTrust = [...DB.FARMER_LISTINGS].sort((a,b)=>b.farmerTrust-a.farmerTrust).slice(0,2);
+  const offersCount = DB.getOffers.get().length;
+
+  return (
+    <div className="h-full scroll-area pb-24">
+      <OfflineBanner online={online} />
+      <div className="px-5 pt-5 flex items-center justify-between">
+        <div>
+          <div className="font-extrabold text-lg text-ink-900">{t('goodMorningBuyer')} 🛒</div>
+          <div className="text-ink-500 text-xs flex items-center gap-1 mt-0.5"><Icon name="mapPin" size={12}/> {user.location||'Delhi NCR'}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={()=>setView('weather')} className="w-9 h-9 rounded-full bg-ink-900/5 flex items-center justify-center text-ink-700"><Icon name="cloud" size={17}/></button>
+          <button className="w-9 h-9 rounded-full bg-ink-900/5 flex items-center justify-center text-ink-700 relative"><Icon name="bell" size={17}/><span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-600 rounded-full"/></button>
+          <button onClick={()=>setView('profile')} className="w-9 h-9 rounded-full bg-forest-700 text-white flex items-center justify-center font-bold text-xs">{user.name?.[0]}</button>
+        </div>
+      </div>
+
+      <div className="px-5 mt-5">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide">{t('sourcingToday')}</div>
+        <Card className="mt-2 !p-0 overflow-hidden border-2 border-forest-700/10">
+          <div className="p-4">
+            <div className="flex items-center gap-2"><Icon name="package" size={22} className="text-forest-700"/><Badge tone="good">{listings.length} new listings nearby</Badge></div>
+            <div className="font-extrabold text-[17px] text-ink-900 mt-3 leading-snug">Fresh crop listings are available in your area</div>
+            <p className="text-sm text-ink-500 mt-1.5 leading-relaxed">Tomato, Onion and Wheat listings were added in the last 2 days — compare prices and trusted farmers before you offer.</p>
+            <div className="flex items-center justify-between mt-4">
+              <span className="text-[11px] text-ink-300 flex items-center gap-1"><Icon name="info" size={12}/> {t('demoRecommendation')}</span>
+              <button onClick={()=>setView('browse')} className="text-forest-700 font-bold text-sm">{t('viewListing')} →</button>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">QUICK ACTIONS</div>
+        <div className="grid grid-cols-3 gap-3">
+          {[['browse','search','Browse Crops'],['price','trendUp','Check Price'],['offers','handshake','My Offers'],['browse','users','Top Farmers'],['knowledge','book','Learn'],['weather','cloud','Weather']].map(([v,ic,label],idx)=>(
+            <button key={label+idx} onClick={()=>setView(v)} className="bg-white rounded-2xl border border-ink-900/[0.06] py-3.5 flex flex-col items-center gap-1.5 active:scale-95 transition-transform">
+              <div className="w-9 h-9 rounded-xl bg-forest-50 text-forest-700 flex items-center justify-center"><Icon name={ic} size={17}/></div>
+              <span className="text-[11px] font-bold text-ink-700">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide">{t('marketSnapshot')}</div>
+          <Badge tone={DB.MARKET_API_CONFIGURED?'live':'demo'}>{DB.MARKET_API_CONFIGURED?t('liveData'):t('demoData')}</Badge>
+        </div>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+          {snapshotCrops.map(c=>{
+            const last = c.history[c.history.length-1].price, prev = c.history[c.history.length-2].price;
+            const pct = (((last-prev)/prev)*100).toFixed(1);
+            const up = pct>=0;
+            return (
+              <button key={c.id} onClick={()=>setView('price', {crop:c.id})} className="min-w-[124px] bg-white rounded-2xl border border-ink-900/[0.06] p-3.5 text-left active:scale-95 transition-transform">
+                <div className="font-bold text-ink-900 text-sm">{c.name}</div>
+                <div className="font-extrabold text-ink-900 mt-1">₹{last.toLocaleString('en-IN')}/q</div>
+                <div className={`flex items-center gap-1 text-xs font-bold mt-1 ${up?'text-forest-600':'text-red-600'}`}>
+                  <Icon name={up?'trendUp':'trendDown'} size={12}/> {up?'+':''}{pct}%
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide">{t('newListings')}</div>
+          <button onClick={()=>setView('browse')} className="text-forest-700 text-xs font-bold">{t('browseListings')} →</button>
+        </div>
+        <div className="space-y-3">
+          {listings.map(l=>{
+            const crop = DB.CROPS.find(c=>c.id===l.cropId);
+            return (
+              <Card key={l.id} onClick={()=>setView('listing-detail',{listingId:l.id})} className="flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-ink-900 text-sm">{crop.name} · {l.quality}</div>
+                  <div className="text-xs text-ink-500 mt-0.5">{l.quantity} {l.unit} · {l.farmer} · {l.distanceKm} km</div>
+                </div>
+                <div className="text-right shrink-0 pl-2">
+                  <div className="font-extrabold text-forest-700 text-sm">₹{l.expectedPrice}/q</div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">{t('trustedFarmers')}</div>
+        <div className="space-y-3">
+          {topFarmerTrust.map(l=>(
+            <Card key={l.id+'-f'} className="flex items-center justify-between">
+              <div>
+                <div className="font-bold text-ink-900 text-sm flex items-center gap-1.5">{l.farmer} <Icon name="shield" size={13} className="text-forest-600"/></div>
+                <div className="text-xs text-ink-500 mt-0.5">{l.farmerTrust}/100 Trust Score · {l.location}</div>
+              </div>
+              <Button size="sm" variant="soft" onClick={()=>setView('listing-detail',{listingId:l.id})}>{t('viewListing')}</Button>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 mt-6">
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">{t('knowledgeToday')}</div>
+        <Card onClick={()=>setView('knowledge-article',{cat:'marketknow'})} className="flex items-center justify-between">
+          <div className="text-sm font-bold text-ink-900 pr-3">How is modal price calculated at a mandi?</div>
+          <Icon name="chevronRight" size={18} className="text-ink-300 shrink-0"/>
+        </Card>
+      </div>
+
+      <DataSourcesFooter />
+    </div>
+  );
+}
+
+function BrowseListingsScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  const [cropFilter, setCropFilter] = React.useState('all');
+  const [qualityFilter, setQualityFilter] = React.useState('all');
+  const [query, setQuery] = React.useState('');
+  const listings = DB.FARMER_LISTINGS.filter(l=>{
+    const crop = DB.CROPS.find(c=>c.id===l.cropId);
+    const matchesQuery = !query || crop.name.toLowerCase().includes(query.toLowerCase()) || l.farmer.toLowerCase().includes(query.toLowerCase());
+    return (cropFilter==='all'||l.cropId===cropFilter) && (qualityFilter==='all'||l.quality===qualityFilter) && matchesQuery;
+  });
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('browseListings')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <div className="flex items-center gap-2 bg-white border border-ink-900/10 rounded-2xl px-3.5 py-2.5">
+          <Icon name="search" size={16} className="text-ink-300"/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search crop or farmer" className="w-full text-sm bg-transparent"/>
+        </div>
+        <div className="flex gap-2 overflow-x-auto no-scrollbar mt-3">
+          <select value={cropFilter} onChange={e=>setCropFilter(e.target.value)} className="px-3 py-2 rounded-full bg-white border border-ink-900/10 text-xs font-bold text-ink-700">
+            <option value="all">All Crops</option>
+            {DB.CROPS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <select value={qualityFilter} onChange={e=>setQualityFilter(e.target.value)} className="px-3 py-2 rounded-full bg-white border border-ink-900/10 text-xs font-bold text-ink-700">
+            <option value="all">Any Quality</option>
+            {['Excellent','Good','Average','Poor'].map(q=><option key={q}>{q}</option>)}
+          </select>
+        </div>
+        <div className="mt-4 space-y-3">
+          {listings.length===0 ? (
+            <div className="text-center py-14"><Icon name="package" size={28} className="mx-auto text-ink-300"/><div className="text-sm text-ink-500 mt-3">No listings match your filters</div></div>
+          ) : listings.map(l=>{
+            const crop = DB.CROPS.find(c=>c.id===l.cropId);
+            return (
+              <Card key={l.id} onClick={()=>setView('listing-detail',{listingId:l.id})}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="font-extrabold text-ink-900">{crop.name}</div>
+                    <div className="text-xs text-ink-500 mt-0.5">{l.quantity} {l.unit} · {l.location}</div>
+                  </div>
+                  <Badge tone={l.quality==='Excellent'||l.quality==='Good'?'good':'neutral'}>{l.quality}</Badge>
+                </div>
+                <div className="flex items-center justify-between mt-3">
+                  <div className="flex items-center gap-1.5 text-xs text-ink-500"><Icon name="shield" size={12} className="text-forest-600"/>{l.farmer} · {l.farmerTrust}/100</div>
+                  <div className="font-extrabold text-forest-700">₹{l.expectedPrice}/q</div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+        <DataSourcesFooter />
+      </div>
+    </div>
+  );
+}
+
+function MakeOfferSheet({ open, onClose, listing, onSubmit }){
+  const DB = window.LINKATRIX;
+  const [price, setPrice] = React.useState(listing?.expectedPrice||'');
+  React.useEffect(()=>{ setPrice(listing?.expectedPrice||''); },[listing?.id]);
+  if(!listing) return null;
+  return (
+    <BottomSheet open={open} onClose={onClose} title="Make an Offer">
+      <div className="text-sm text-ink-500 mb-4">Farmer's expected price: <b className="text-ink-900">₹{listing.expectedPrice}/{listing.unit}</b></div>
+      <label className="text-xs font-bold text-ink-500">Your Offer (₹/{listing.unit})</label>
+      <input type="number" value={price} onChange={e=>setPrice(e.target.value)} className="w-full mt-1 mb-4 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]" />
+      <Button className="w-full" size="lg" onClick={()=>onSubmit(price)}>Send Offer <Icon name="send" size={15}/></Button>
+    </BottomSheet>
+  );
+}
+
+function ListingDetailScreen({ setView, params }){
+  const DB = window.LINKATRIX;
+  const toast = useToast();
+  const [offerOpen, setOfferOpen] = React.useState(false);
+  const listing = DB.FARMER_LISTINGS.find(l=>l.id===params?.listingId) || DB.FARMER_LISTINGS[0];
+  const crop = DB.CROPS.find(c=>c.id===listing.cropId);
+  const mandiAvg = Math.round(crop.history.slice(-7).reduce((a,d)=>a+d.price,0)/7);
+
+  const sendOffer = (price) => {
+    DB.getOffers.add({ id:'O'+Math.floor(Math.random()*9000), listingId:listing.id, crop:crop.name, farmer:listing.farmer, price:Number(price), status:'pending', createdAt:new Date().toISOString().slice(0,10) });
+    setOfferOpen(false);
+    toast('Offer sent to '+listing.farmer);
+  };
+
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="Listing Details" onBack={()=>setView('browse')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <Card>
+          <div className="flex items-center justify-between">
+            <div className="font-extrabold text-xl text-ink-900">{crop.name}</div>
+            <Badge tone={listing.quality==='Excellent'||listing.quality==='Good'?'good':'neutral'}>{listing.quality}</Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-4 text-sm">
+            <div><div className="text-xs text-ink-300">Quantity</div><div className="font-bold text-ink-900">{listing.quantity} {listing.unit}</div></div>
+            <div><div className="text-xs text-ink-300">Expected Price</div><div className="font-bold text-ink-900">₹{listing.expectedPrice}/{listing.unit}</div></div>
+            <div><div className="text-xs text-ink-300">Location</div><div className="font-bold text-ink-900">{listing.location}</div></div>
+            <div><div className="text-xs text-ink-300">Listed</div><div className="font-bold text-ink-900">{listing.createdAt}</div></div>
+          </div>
+        </Card>
+
+        <Card className="mt-4">
+          <div className="font-extrabold text-ink-900 text-sm mb-3">Market comparison</div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div><div className="text-[11px] text-ink-300">Farmer's Price</div><div className="font-extrabold text-ink-900">₹{listing.expectedPrice}</div></div>
+            <div><div className="text-[11px] text-ink-300">Current Mandi</div><div className="font-extrabold text-ink-900">₹{crop.history[crop.history.length-1].price}</div></div>
+            <div><div className="text-[11px] text-ink-300">7-Day Avg</div><div className="font-extrabold text-ink-900">₹{mandiAvg}</div></div>
+          </div>
+        </Card>
+
+        <Card className="mt-4">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-forest-700 text-white flex items-center justify-center font-bold">{listing.farmer[0]}</div>
+            <div>
+              <div className="font-bold text-ink-900 text-sm">{listing.farmer}</div>
+              <div className="text-xs text-ink-500 flex items-center gap-1"><Icon name="shield" size={12} className="text-forest-600"/> Trust {listing.farmerTrust}/100</div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 mt-4">
+            <Button onClick={()=>setOfferOpen(true)}>Make Offer</Button>
+            <Button variant="outline" onClick={()=>toast('Opening chat with '+listing.farmer)}><Icon name="send" size={15}/> Contact Farmer</Button>
+          </div>
+        </Card>
+      </div>
+      <MakeOfferSheet open={offerOpen} onClose={()=>setOfferOpen(false)} listing={listing} onSubmit={sendOffer} />
+    </div>
+  );
+}
+
+function MyOffersScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  const offers = DB.getOffers.get();
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('myOffers')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        {offers.length===0 ? (
+          <div className="text-center py-16">
+            <Icon name="handshake" size={30} className="mx-auto text-ink-300"/>
+            <div className="font-bold text-ink-900 mt-3">No offers sent yet</div>
+            <div className="text-xs text-ink-500 mt-1">Browse listings and make your first offer.</div>
+            <Button className="mt-5" onClick={()=>setView('browse')}>{t('browseListings')}</Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {offers.map(o=>(
+              <Card key={o.id} className="flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-ink-900 text-sm">{o.crop} · {o.farmer}</div>
+                  <div className="text-xs text-ink-500 mt-0.5">{o.createdAt}</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-extrabold text-ink-900">₹{o.price}</div>
+                  <Badge tone="warn">Pending</Badge>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+        <DataSourcesFooter />
+      </div>
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// KNOWLEDGE HUB + category detail screens
+// ==========================================================================
+function KnowledgeHubScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const t = useT();
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('knowledgeHub')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <div className="grid grid-cols-2 gap-3">
+          {DB.KNOWLEDGE_CATEGORIES.map(c=>(
+            <button key={c.id} onClick={()=>setView('knowledge-article',{cat:c.id})} className="bg-white rounded-2xl border border-ink-900/[0.06] p-4 text-left active:scale-95 transition-transform">
+              <div className="w-10 h-10 rounded-xl bg-forest-50 text-forest-700 flex items-center justify-center"><Icon name={c.icon} size={19}/></div>
+              <div className="font-bold text-ink-900 text-sm mt-2.5">{c.title}</div>
+            </button>
+          ))}
+        </div>
+        <div className="mt-5 space-y-3">
+          <Card onClick={()=>setView('what-to-grow')} className="flex items-center justify-between">
+            <div><div className="font-bold text-ink-900 text-sm">What Should I Grow Next?</div><div className="text-xs text-ink-500 mt-0.5">Get a crop suggestion for your field</div></div>
+            <Icon name="chevronRight" size={18} className="text-ink-300"/>
+          </Card>
+          <Card onClick={()=>setView('after-harvest')} className="flex items-center justify-between">
+            <div><div className="font-bold text-ink-900 text-sm">What Should I Grow After Harvest?</div><div className="text-xs text-ink-500 mt-0.5">Plan your next cycle</div></div>
+            <Icon name="chevronRight" size={18} className="text-ink-300"/>
+          </Card>
+        </div>
+        <DataSourcesFooter />
+      </div>
+    </div>
+  );
+}
+
+function KnowledgeArticleScreen({ setView, params }){
+  const DB = window.LINKATRIX;
+  const cat = params?.cat || 'fertilizers';
+  const meta = DB.KNOWLEDGE_CATEGORIES.find(c=>c.id===cat);
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={meta?.title || 'Knowledge'} onBack={()=>setView('knowledge')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8 space-y-3">
+        {cat==='fertilizers' && DB.FERTILIZERS.map(f=>(
+          <Card key={f.name}>
+            <div className="font-extrabold text-ink-900">{f.name}</div>
+            <div className="text-xs text-ink-500 mt-2"><b className="text-ink-700">What it does:</b> {f.what}</div>
+            <div className="text-xs text-ink-500 mt-1.5"><b className="text-ink-700">When used:</b> {f.when}</div>
+            <div className="text-xs text-amber-600 mt-1.5 bg-amber-100 rounded-lg px-2.5 py-2"><b>Precaution:</b> {f.caution}</div>
+          </Card>
+        ))}
+        {cat==='pesticides' && DB.PESTICIDES.map(p=>(
+          <Card key={p.category}>
+            <div className="font-extrabold text-ink-900">{p.category}</div>
+            <div className="text-xs text-ink-500 mt-2"><b className="text-ink-700">Purpose:</b> {p.purpose}</div>
+            <div className="text-xs text-ink-500 mt-1.5"><b className="text-ink-700">Crop applicability:</b> {p.crops}</div>
+            <div className="text-xs text-amber-600 mt-1.5 bg-amber-100 rounded-lg px-2.5 py-2"><b>Safety:</b> {p.safety}</div>
+          </Card>
+        ))}
+        {!['fertilizers','pesticides'].includes(cat) && (
+          <Card>
+            <div className="font-extrabold text-ink-900">{meta?.title} — Coming soon</div>
+            <p className="text-xs text-ink-500 mt-2 leading-relaxed">Detailed {meta?.title.toLowerCase()} guidance will appear here. Always follow crop-specific label instructions and local agricultural guidance.</p>
+          </Card>
+        )}
+        <div className="text-[11px] text-ink-300 flex items-center gap-1.5 pt-2"><Icon name="info" size={12}/> Follow crop-specific label instructions and local agricultural guidance.</div>
+      </div>
+    </div>
+  );
+}
+
+function WhatToGrowScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const [form, setForm] = React.useState({ crop:'wheat', season:'Rabi', water:'Medium', soil:'Loamy' });
+  const [result, setResult] = React.useState(null);
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="What Should I Grow Next?" onBack={()=>setView('knowledge')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <div className="space-y-3">
+          <div><label className="text-xs font-bold text-ink-500">Current Crop</label>
+            <select value={form.crop} onChange={e=>setForm(f=>({...f,crop:e.target.value}))} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {DB.CROPS.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div><label className="text-xs font-bold text-ink-500">Season</label>
+            <select value={form.season} onChange={e=>setForm(f=>({...f,season:e.target.value}))} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {['Kharif','Rabi','Zaid'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div><label className="text-xs font-bold text-ink-500">Available Water</label>
+            <select value={form.water} onChange={e=>setForm(f=>({...f,water:e.target.value}))} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {['Low','Medium','High'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div><label className="text-xs font-bold text-ink-500">Soil Type</label>
+            <select value={form.soil} onChange={e=>setForm(f=>({...f,soil:e.target.value}))} className="w-full mt-1 px-4 py-3 rounded-2xl border border-ink-900/10 bg-white text-[15px]">
+              {['Loamy','Sandy','Clay','Black Soil'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+        <Button className="w-full mt-5" onClick={()=>setResult(DB.WHAT_TO_GROW_POOL)}>Get Suggestions</Button>
+        {result && (
+          <div className="mt-5 space-y-3 fade-up">
+            {result.map(r=>(
+              <Card key={r.crop}>
+                <div className="font-extrabold text-ink-900">{r.crop}</div>
+                <div className="text-xs text-ink-500 mt-1">{r.reason}</div>
+              </Card>
+            ))}
+            <Badge tone="neutral">Demo recommendation</Badge>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AfterHarvestScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const options = DB.AFTER_HARVEST.wheat;
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="What Should I Grow After Harvest?" onBack={()=>setView('knowledge')} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <Card className="mb-4 flex items-center justify-between">
+          <div className="text-xs text-ink-500">Current crop</div>
+          <div className="font-extrabold text-ink-900">Wheat</div>
+        </Card>
+        <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">RECOMMENDED</div>
+        <div className="space-y-3">
+          {options.map(o=>(
+            <Card key={o.crop}>
+              <div className="font-extrabold text-ink-900">{o.crop}</div>
+              <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                <div><span className="text-ink-300">Water:</span> <span className="font-bold text-ink-900">{o.water}</span></div>
+                <div><span className="text-ink-300">Season:</span> <span className="font-bold text-ink-900">{o.season}</span></div>
+                <div><span className="text-ink-300">Demand:</span> <span className="font-bold text-ink-900">{o.demand}</span></div>
+                <div><span className="text-ink-300">Cycle:</span> <span className="font-bold text-ink-900">{o.cycle}</span></div>
+              </div>
+            </Card>
+          ))}
+        </div>
+        <Badge tone="neutral" className="mt-4">Demo recommendation</Badge>
+      </div>
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// WEATHER + PROFILE
+// ==========================================================================
+function WeatherScreen({ setView }){
+  const DB = window.LINKATRIX;
+  const w = DB.weatherEngine();
+  const tip = DB.farmTipFromWeather(w);
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title="Weather" onBack={()=>setView('home')} right={<Badge tone={w.configured?'live':'demo'}>{w.configured?'LIVE':'DEMO WEATHER'}</Badge>} />
+      <div className="flex-1 scroll-area px-5 py-4 pb-8">
+        <Card className="!p-6 text-center bg-forest-900 !border-0">
+          <Icon name="cloudRain" size={40} className="mx-auto text-white/90"/>
+          <div className="font-extrabold text-4xl text-white mt-2">{w.tempC}°C</div>
+          <div className="text-white/60 text-sm mt-1">{w.condition}</div>
+        </Card>
+        <div className="grid grid-cols-3 gap-3 mt-4">
+          <Card className="text-center !p-3"><Icon name="cloudRain" size={16} className="mx-auto text-forest-700"/><div className="font-extrabold text-ink-900 mt-1">{w.rainProb}%</div><div className="text-[10px] text-ink-500">Rain chance</div></Card>
+          <Card className="text-center !p-3"><Icon name="wind" size={16} className="mx-auto text-forest-700"/><div className="font-extrabold text-ink-900 mt-1">{w.windKmh} km/h</div><div className="text-[10px] text-ink-500">Wind</div></Card>
+          <Card className="text-center !p-3"><Icon name="droplet" size={16} className="mx-auto text-forest-700"/><div className="font-extrabold text-ink-900 mt-1">{w.humidity}%</div><div className="text-[10px] text-ink-500">Humidity</div></Card>
+        </div>
+        <div className="mt-5">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">FARM RECOMMENDATION</div>
+          <Card className="border-2 border-forest-700/10">
+            <div className="flex items-center gap-2"><Icon name={tip.icon} size={19} className="text-forest-700"/><Badge tone="good">{tip.badge}</Badge></div>
+            <div className="font-extrabold text-ink-900 mt-2">{tip.title}</div>
+            <div className="text-xs text-ink-500 mt-1.5 leading-relaxed">{tip.reason}</div>
+          </Card>
+        </div>
+        <div className="text-[11px] text-ink-300 mt-4 flex items-center gap-1.5"><Icon name="info" size={12}/> Demo weather — connect WEATHER_API_URL for live conditions.</div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileScreen({ user, setView, onLogout, lang, setLang }){
+  const t = useT();
+  const [marketSettingsOpen, setMarketSettingsOpen] = React.useState(false);
+  return (
+    <div className="h-full flex flex-col">
+      <TopBar title={t('profile')} onBack={()=>setView('home')} />
+      <div className="flex-1 scroll-area px-5 py-5 pb-8">
+        <Card className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-full bg-forest-700 text-white flex items-center justify-center font-extrabold text-lg">{user.name?.[0]}</div>
+          <div>
+            <div className="font-extrabold text-ink-900">{user.name}</div>
+            <div className="text-xs text-ink-500">{user.role} · {user.location||'Haryana'}</div>
+          </div>
+        </Card>
+        {user.role==='FARMER' && (
+          <Card className="mt-3">
+            <div className="flex justify-between text-sm py-1"><span className="text-ink-500">Main Crop</span><span className="font-bold text-ink-900 capitalize">{user.crop||'Tomato'}</span></div>
+            <div className="flex justify-between text-sm py-1"><span className="text-ink-500">Total Listed Quantity</span><span className="font-bold text-ink-900">{user.quantity||20} Quintals</span></div>
+          </Card>
+        )}
+        {user.role==='BUYER' && (
+          <Card className="mt-3">
+            <div className="flex justify-between text-sm py-1"><span className="text-ink-500">Business Name</span><span className="font-bold text-ink-900">{user.businessName||user.name}</span></div>
+            <div className="flex justify-between text-sm py-1"><span className="text-ink-500">Buyer Category</span><span className="font-bold text-ink-900">{user.category||'Wholesaler'}</span></div>
+            <div className="flex justify-between text-sm py-1"><span className="text-ink-500">Offers Sent</span><span className="font-bold text-ink-900">{window.LINKATRIX.getOffers.get().length}</span></div>
+          </Card>
+        )}
+        <div className="mt-5">
+          <div className="text-xs font-extrabold text-ink-500 tracking-wide mb-2">LANGUAGE</div>
+          <div className="flex gap-2">
+            <button onClick={()=>setLang('en')} className={`flex-1 py-2.5 rounded-xl font-bold text-sm ${lang==='en'?'bg-forest-700 text-white':'bg-white border border-ink-900/10 text-ink-700'}`}>English</button>
+            <button onClick={()=>setLang('hi')} className={`flex-1 py-2.5 rounded-xl font-bold text-sm ${lang==='hi'?'bg-forest-700 text-white':'bg-white border border-ink-900/10 text-ink-700'}`}>हिंदी</button>
+          </div>
+        </div>
+        <div className="mt-5 space-y-1">
+          {[['mapPin','Location'],['bell','Notifications'],['settings','Data preferences']].map(([ic,label])=>(
+            <button key={label} onClick={()=> label==='Data preferences' && setMarketSettingsOpen(true)} className="w-full flex items-center justify-between py-3 border-b border-ink-900/[0.05]">
+              <div className="flex items-center gap-3 text-sm font-semibold text-ink-900"><Icon name={ic} size={17} className="text-ink-500"/>{label}</div>
+              <Icon name="chevronRight" size={16} className="text-ink-300"/>
+            </button>
+          ))}
+        </div>
+        <Button variant="outline" className="w-full mt-6" onClick={onLogout}><Icon name="logOut" size={16}/> {t('logout')}</Button>
+      </div>
+      <MarketApiSettingsSheet open={marketSettingsOpen} onClose={()=>setMarketSettingsOpen(false)} status="idle" />
+    </div>
+  );
+}
+</script>
+<script type="text/babel" data-presets="react">
+// ==========================================================================
+// ROOT APP
+// ==========================================================================
+function AuthedShell({ user, setUser, onLogout }){
+  const [view, setViewRaw] = React.useState('home');
+  const [params, setParams] = React.useState(null);
+  const [stack, setStack] = React.useState(['home']);
+  const [online, setOnline] = React.useState(true);
+  const [lang, setLang] = React.useState('en');
+
+  const setView = (v, p) => {
+    setViewRaw(v); setParams(p||null);
+    setStack(s => [...s, v]);
+  };
+
+  const isBuyer = user.role === 'BUYER';
+  const bottomTabs = isBuyer ? ['home','price','browse','offers','knowledge'] : ['home','price','add','buyers','knowledge'];
+
+  const screens = {
+    home: isBuyer ? <BuyerHome user={user} setView={setView} online={online} /> : <FarmerHome user={user} setView={setView} online={online} />,
+    price: <PriceTrendScreen setView={setView} params={params} online={online} />,
+    add: <AddCropScreen setView={setView} user={user} />,
+    'add-success': <AddCropSuccessScreen setView={setView} params={params} />,
+    recommendation: <RecommendationScreen setView={setView} params={params} user={user} />,
+    buyers: <BuyersScreen setView={setView} />,
+    'buyer-profile': <BuyerProfileScreen setView={setView} params={params} />,
+    browse: <BrowseListingsScreen setView={setView} />,
+    'listing-detail': <ListingDetailScreen setView={setView} params={params} />,
+    offers: <MyOffersScreen setView={setView} />,
+    knowledge: <KnowledgeHubScreen setView={setView} />,
+    'knowledge-article': <KnowledgeArticleScreen setView={setView} params={params} />,
+    'what-to-grow': <WhatToGrowScreen setView={setView} />,
+    'after-harvest': <AfterHarvestScreen setView={setView} />,
+    weather: <WeatherScreen setView={setView} />,
+    profile: <ProfileScreen user={user} setView={setView} onLogout={onLogout} lang={lang} setLang={setLang} />,
+  };
+
+  return (
+    <LangCtx.Provider value={{ lang, setLang }}>
+      <div className="absolute inset-0 flex flex-col">
+        <div className="flex-1 relative overflow-hidden">
+          {screens[view] || screens.home}
+        </div>
+        <BottomNav active={view} setView={setView} role={user.role} />
+      </div>
+    </LangCtx.Provider>
+  );
+}
+
+function Root(){
+  const [stage, setStage] = React.useState('splash'); // splash | login | register | location | app
+  const [user, setUser] = React.useState(null);
+  const [toasts, setToasts] = React.useState([]);
+  const [lang, setLang] = React.useState('en');
+
+  const handleLogin = (account) => { setUser(account); setStage('location'); };
+  const handleRegistered = (account) => { setUser(account); setStage('location'); };
+  const handleLocationDone = (loc) => { setUser(u=>({...u, ...loc})); setStage('app'); };
+  const handleLogout = () => { setUser(null); setStage('login'); };
+
+  return (
+    <AppCtx.Provider value={{ toasts, setToasts }}>
+      <LangCtx.Provider value={{ lang, setLang }}>
+        <div className="phone-shell overflow-hidden">
+          {stage==='splash' && <SplashScreen onDone={()=>setStage('login')} />}
+          {stage==='login' && <LoginScreen onLogin={handleLogin} goRegister={()=>setStage('register')} />}
+          {stage==='register' && <RegisterScreen onBack={()=>setStage('login')} onRegistered={handleRegistered} />}
+          {stage==='location' && <LocationSetupScreen onDone={handleLocationDone} />}
+          {stage==='app' && user && <AuthedShell user={user} setUser={setUser} onLogout={handleLogout} />}
+          <ToastHost />
+        </div>
+      </LangCtx.Provider>
+    </AppCtx.Provider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Root />);
+</script>
+</body>
+</html>
